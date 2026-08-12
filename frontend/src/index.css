@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+}
+
+@layer base {
+  :root {
+    --color-primary: #00236f;
+    --color-primary-container: #1e3a8a;
+    --color-on-primary: #ffffff;
+    --color-on-primary-container: #90a8ff;
+    --color-surface: #faf8ff;
+    --color-surface-dim: #d2d9f4;
+    --color-surface-bright: #faf8ff;
+    --color-surface-container-lowest: #ffffff;
+    --color-surface-container-low: #f2f3ff;
+    --color-surface-container: #eaedff;
+    --color-surface-container-high: #e2e7ff;
+    --color-surface-container-highest: #dae2fd;
+    --color-on-surface: #131b2e;
+    --color-on-surface-variant: #444651;
+    --color-outline: #757682;
+    --color-outline-variant: #c5c5d3;
+    --color-secondary-container: #d0e1fb;
+    --color-on-secondary-container: #54647a;
+  }
+}
+
+.hero-pattern {
+  background-color: #faf8ff;
+  background-image: radial-gradient(#dce1ff 1.2px, transparent 1.2px);
+  background-size: 24px 24px;
+}
+
+.font-code {
+  font-family: 'Courier Prime', monospace;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.icon-fill {
+  font-variation-settings: 'FILL' 1;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c5c5d3;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #757682;
+}
+
+/* Water Ripple Animation Effects */
+@keyframes waterPulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+}
+
+.animate-water-pulse {
+  animation: waterPulse 6s ease-in-out infinite;
+}
+
+@keyframes floatWater {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(2deg);
+  }
+}
+
+.animate-float-water {
+  animation: floatWater 5s ease-in-out infinite;
+}
+
+/* Liquid Blob styling */
+.liquid-blob {
+  border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+  transition: all 0.5s ease-in-out;
+}
+

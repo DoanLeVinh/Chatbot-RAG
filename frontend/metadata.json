@@ -1,0 +1,6 @@
+{
+  "name": "LogiChat - AI Legal Assistant",
+  "description": "Trợ lý Pháp lý Hải quan & Xuất Nhập Khẩu AI - Tra cứu HS Code, Thuế suất và Quy định Pháp luật",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
