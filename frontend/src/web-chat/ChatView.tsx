@@ -7,7 +7,7 @@ interface ChatViewProps {
   onToggleReferences: () => void;
   isReferencesOpen: boolean;
   onOpenMobileSidebar: () => void;
-  onOpenPdfModal: (title: string, subtitle?: string) => void;
+  onOpenPdfModal: (message: ChatMessage) => void;
   onCitationClick: (citationCode: string) => void;
   isGenerating?: boolean;
 }
@@ -185,12 +185,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {msg.summaryPdf && (
                     <div className="pt-2 border-t border-blue-200/60">
                       <button
-                        onClick={() =>
-                          onOpenPdfModal(
-                            msg.summaryPdf?.title || 'Tóm tắt pháp lý',
-                            `Số tờ khai / HS Code: ${msg.hsCode || 'Chi tiết'}`
-                          )
-                        }
+                        onClick={() => onOpenPdfModal(msg)}
                         className="text-xs sm:text-sm text-blue-600 font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
                       >
                         <span className="material-symbols-outlined text-[18px]">

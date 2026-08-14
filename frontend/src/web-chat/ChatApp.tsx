@@ -67,10 +67,26 @@ export default function App() {
     isOpen: boolean;
     title: string;
     subtitle?: string;
+    content?: string;
+    hsCode?: string;
+    taxes?: ChatMessage['taxes'];
+    citations?: ChatMessage['citations'];
   }>({
     isOpen: false,
     title: '',
   });
+
+  const openPdfModalFromMessage = (message: ChatMessage) => {
+    setPdfModal({
+      isOpen: true,
+      title: message.summaryPdf?.title || 'Tóm tắt pháp lý',
+      subtitle: `Số tờ khai / HS Code: ${message.hsCode || 'Chi tiết'}`,
+      content: message.text,
+      hsCode: message.hsCode,
+      taxes: message.taxes,
+      citations: message.citations,
+    });
+  };
 
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [highlightedCitationCode, setHighlightedCitationCode] = useState<string | null>(null);
@@ -379,9 +395,7 @@ export default function App() {
                 onToggleReferences={() => setIsReferencesOpen(!isReferencesOpen)}
                 isReferencesOpen={isReferencesOpen}
                 onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
-                onOpenPdfModal={(title, subtitle) =>
-                  setPdfModal({ isOpen: true, title, subtitle })
-                }
+                onOpenPdfModal={openPdfModalFromMessage}
                 onCitationClick={handleCitationClick}
                 isGenerating={isGenerating}
               />
@@ -428,6 +442,10 @@ export default function App() {
         isOpen={pdfModal.isOpen}
         title={pdfModal.title}
         subtitle={pdfModal.subtitle}
+        content={pdfModal.content}
+        hsCode={pdfModal.hsCode}
+        taxes={pdfModal.taxes}
+        citations={pdfModal.citations}
         onClose={() => setPdfModal({ ...pdfModal, isOpen: false })}
       />
 

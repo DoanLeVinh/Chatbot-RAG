@@ -149,15 +149,19 @@ QUY TẮC:
 2. Luôn trích dẫn cụ thể: "Theo Điều X, Khoản Y, [Tên văn bản]".
 3. Nếu không đủ thông tin, nói rõ và gợi ý hỏi cụ thể hơn.
 4. Từ chối tư vấn lách thuế.
+5. TRẢ LỜI ĐẦY ĐỦ, CHI TIẾT — không rút gọn, không tóm tắt quá ngắn. Diễn giải TRỌN VẸN nội dung của Điều/Khoản liên quan trực tiếp nhất đến câu hỏi (viết lại rõ ràng, đầy đủ ý, không bỏ sót điểm/khoản con).
+6. Nếu trong ngữ cảnh có các Điều/Khoản KHÁC liên quan (ví dụ: điều kiện áp dụng, thủ tục kèm theo, văn bản sửa đổi/hướng dẫn), PHẢI trích dẫn và giải thích thêm các điều đó trong phần "Quy định chi tiết", không chỉ dừng ở điều khoản đầu tiên tìm thấy.
+7. Không viết câu bị cắt cụt hay liệt kê rời rạc — mỗi ý phải là câu hoàn chỉnh, có chủ ngữ - vị ngữ rõ ràng.
 
 CẤU TRÚC TRẢ LỜI:
 
-**Tóm tắt:** (1-2 câu trả lời trực tiếp)
+**Tóm tắt:** (2-3 câu trả lời trực tiếp, đủ ý)
 
 **Quy định chi tiết:**
-- Trích dẫn Điều/Khoản cụ thể với nội dung tóm tắt
+- Trình bày đầy đủ nội dung Điều/Khoản chính liên quan đến câu hỏi (diễn giải lại bằng câu hoàn chỉnh, không cắt xén)
+- Trình bày thêm các Điều/Khoản liên quan khác có trong ngữ cảnh (thủ tục, điều kiện, văn bản sửa đổi/hướng dẫn thi hành...)
 
-**Lưu ý:** (nếu có thủ tục, thời hạn, hoặc điều kiện quan trọng)
+**Lưu ý:** (thủ tục, thời hạn, hoặc điều kiện quan trọng cần chú ý)
 
 📋 **Văn bản tham chiếu:**
 1. Tên văn bản - Điều/Khoản
@@ -200,11 +204,15 @@ class LocalRetriever:
         self.use_faiss = False
         try:
             import faiss  # type: ignore
-            if INDEX_FAISS.exists():
+            if not INDEX_FAISS.exists():
+                print(f"[RETRIEVER] FAISS index file not found at: {INDEX_FAISS}")
+            else:
                 self.index = faiss.read_index(str(INDEX_FAISS))
                 self.use_faiss = True
-        except Exception:
+                print(f"[RETRIEVER] Loaded FAISS index: {self.index.ntotal} vectors, dim={self.index.d}")
+        except Exception as e:
             self.index = None
+            print(f"[RETRIEVER] Failed to load FAISS index: {type(e).__name__}: {e}")
 
         if not self.use_faiss:
             try:
@@ -212,10 +220,13 @@ class LocalRetriever:
                 if INDEX_HNSW.exists():
                     self.hnsw = hnswlib.Index(space='ip', dim=self.model.get_sentence_embedding_dimension())
                     self.hnsw.load_index(str(INDEX_HNSW))
+                    print(f"[RETRIEVER] Loaded HNSW index as fallback.")
                 else:
                     self.hnsw = None
-            except Exception:
+                    print(f"[RETRIEVER] No FAISS and no HNSW index available. Retrieval will fail until an index is built (run build_faiss_local.py).")
+            except Exception as e:
                 self.hnsw = None
+                print(f"[RETRIEVER] Failed to load HNSW index: {type(e).__name__}: {e}")
 
         # store embedding dimension
         self.dim = self.model.get_sentence_embedding_dimension()
@@ -425,8 +436,14 @@ class LocalRetriever:
             if gemini_result and gemini_result.get('answer'):
                 return gemini_result['answer'], gemini_result.get('sources', enriched_sources), "gemini"
 
-        # --- Fallback: Local extractive synthesis ---
-        # Dùng parent text thay vì child text cho context đầy đủ hơn
+        # --- Fallback: Local synthesis (khi không có/không gọi được Gemini) ---
+        # Ưu tiên trả về NGUYÊN VĂN trọn các Điều luật liên quan (không cắt câu rời rạc)
+        if parents:
+            answer, sources = format_full_parents_answer(parents, query, max_items=4)
+            if answer:
+                return answer, sources, "local"
+
+        # Fallback thứ 2: extractive synthesis trên children (khi không có parent nào)
         retrieved_for_synth = parents if parents else children
         summary, sources = synthesize_from_retrieved(
             self.model, query, retrieved_for_synth, max_sentences=max_sentences
@@ -538,7 +555,7 @@ def _extract_article_refs(text):
     return result
 
 
-def _format_parent_context(parents, max_items=4):
+def _format_parent_context(parents, max_items=6):
     """Format Parent Chunks thành context string cho Gemini."""
     lines = []
     for i, parent in enumerate(parents[:max_items], start=1):
@@ -550,7 +567,7 @@ def _format_parent_context(parents, max_items=4):
         chapter = parent.get("chapter")
         chapter_text = f" | {chapter}" if chapter else ""
         # Lấy toàn bộ parent text (trọn Điều luật) — đây là lợi thế của PDR
-        lines.append(f"[Nguồn {i}] {src} | vị trí {start}{chapter_text}{article_text}\n{text[:2000]}")
+        lines.append(f"[Nguồn {i}] {src} | vị trí {start}{chapter_text}{article_text}\n{text[:2500]}")
     return "\n\n".join(lines)
 
 
@@ -599,7 +616,7 @@ def _call_gemini_api(system_prompt, user_prompt):
         "generationConfig": {
             "temperature": 0.2,
             "topP": 0.95,
-            "maxOutputTokens": 2048,
+            "maxOutputTokens": 4096,
         },
     }
     data = json.dumps(payload).encode("utf-8")
@@ -692,6 +709,48 @@ def _word_overlap_ratio(text_a, text_b):
         return 0.0
     intersection = words_a & words_b
     return len(intersection) / min(len(words_a), len(words_b))
+
+
+def format_full_parents_answer(parents, query, max_items=4, max_chars_per_item=2200):
+    """Fallback KHÔNG dùng Gemini: trả về NGUYÊN VĂN trọn các Điều luật liên quan nhất
+    (parent chunks từ PDR), kèm điều liên quan khác — thay vì cắt/ghép câu rời rạc.
+    """
+    if not parents:
+        return "", []
+
+    parts = []
+    sources = []
+    for i, p in enumerate(parents[:max_items], start=1):
+        src = p.get('source', 'unknown')
+        start = p.get('start_index')
+        text = (p.get('text') or '').strip()
+        if not text:
+            continue
+        refs = _extract_article_refs(text)
+        chapter = p.get('chapter')
+        header_bits = []
+        if refs:
+            header_bits.append(', '.join(refs))
+        if chapter:
+            header_bits.append(chapter)
+        header_bits.append(src)
+        header = " — ".join(header_bits)
+
+        body = text[:max_chars_per_item]
+        if len(text) > max_chars_per_item:
+            body = body.rsplit(' ', 1)[0] + '…'
+
+        label = "📖 QUY ĐỊNH LIÊN QUAN TRỰC TIẾP" if i == 1 else f"📎 Điều liên quan #{i - 1}"
+        parts.append(f"{label} ({header}):\n{body}")
+        sources.append({
+            'rank': i, 'source': src, 'start_index': start, 'article_refs': refs
+        })
+
+    answer = (
+        f"Dựa trên câu hỏi \"{query}\", dưới đây là toàn bộ nội dung các Điều/Khoản liên quan "
+        f"nhất tìm thấy trong dữ liệu pháp luật hiện có:\n\n" + "\n\n".join(parts)
+    )
+    return answer, sources
 
 
 def synthesize_from_retrieved(model, query, retrieved, max_sentences=6):

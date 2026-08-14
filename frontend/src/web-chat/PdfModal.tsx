@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
+import { TaxBreakdown, LegalCitation } from '../shared/types';
 
 interface PdfModalProps {
   isOpen: boolean;
   title: string;
   subtitle?: string;
+  content?: string;
+  hsCode?: string;
+  taxes?: TaxBreakdown[];
+  citations?: LegalCitation[];
   onClose: () => void;
 }
 
@@ -11,12 +16,22 @@ export const PdfModal: React.FC<PdfModalProps> = ({
   isOpen,
   title,
   subtitle,
+  content,
+  hsCode,
+  taxes,
+  citations,
   onClose,
 }) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   if (!isOpen) return null;
+
+  // Nội dung thật lấy từ câu trả lời AI; chỉ dùng mẫu khi thật sự không có dữ liệu.
+  const realContent =
+    content && content.trim().length > 0
+      ? content
+      : 'Chưa có nội dung phân tích cho câu hỏi này.';
 
   const handleDownload = async () => {
     setIsDownloading(true);
@@ -28,11 +43,10 @@ export const PdfModal: React.FC<PdfModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: title,
-          content: `Bản tóm tắt pháp lý: ${title}\n${subtitle || ''}\n\nI. CĂN CỨ PHÁP LÝ CHÍNH\n- Luật Hải quan số 54/2014/QH13\n- Nghị định số 119/2022/NĐ-CP (Biểu thuế AJCEP/VJEPA)\n- Thông tư số 04/2023/TT-BTTTT\n- Thông tư số 38/2015/TT-BTC sửa đổi bởi TT 39/2018/TT-BTC\n\nII. KẾT QUẢ PHÂN TÍCH THUẾ SUẤT & THỦ TỤC\n• Thuế nhập khẩu ưu đãi đặc biệt: 0%\n• Thuế giá trị gia tăng (VAT): 10%\n• Thủ tục kiểm tra chuyên ngành: Miễn giấy phép (Trừ thiết bị thu phát sóng)`,
-          citations: [
-            { code: 'NĐ 119/2022/NĐ-CP', title: 'Nghị định 119/2022/NĐ-CP - Biểu thuế AJCEP' },
-            { code: 'TT 04/2023/TT-BTTTT', title: 'Thông tư 04/2023/TT-BTTTT - Danh mục KTCN' },
-          ],
+          hsCode: hsCode || undefined,
+          content: realContent,
+          taxes: taxes && taxes.length > 0 ? taxes : undefined,
+          citations: citations && citations.length > 0 ? citations : undefined,
         }),
       });
 
@@ -112,20 +126,38 @@ export const PdfModal: React.FC<PdfModalProps> = ({
             Ngày trích xuất: {new Date().toLocaleDateString('vi-VN')} | Đơn vị tư vấn: Hệ thống Trợ lý AI LogiChat Legal.
           </p>
 
-          <div className="border p-3 rounded bg-white space-y-1">
-            <div className="font-bold text-blue-600">I. CĂN CỨ PHÁP LÝ CHÍNH</div>
-            <div>- Luật Hải quan số 54/2014/QH13</div>
-            <div>- Nghị định số 119/2022/NĐ-CP (Biểu thuế AJCEP/VJEPA)</div>
-            <div>- Thông tư số 04/2023/TT-BTTTT</div>
-            <div>- Thông tư số 38/2015/TT-BTC sửa đổi bởi TT 39/2018/TT-BTC</div>
+          {hsCode && (
+            <div className="border p-3 rounded bg-white">
+              <span className="font-bold text-blue-600">Mã HS: </span>
+              <span>{hsCode}</span>
+            </div>
+          )}
+
+          <div className="border p-3 rounded bg-white space-y-1 whitespace-pre-wrap">
+            <div className="font-bold text-blue-600">I. NỘI DUNG PHÂN TÍCH</div>
+            <div>{realContent}</div>
           </div>
 
-          <div className="border p-3 rounded bg-white space-y-1">
-            <div className="font-bold text-blue-600">II. KẾT QUẢ PHÂN TÍCH THUẾ SUẤT & THỦ TỤC</div>
-            <div>• Thuế nhập khẩu ưu đãi đặc biệt: 0%</div>
-            <div>• Thuế giá trị gia tăng (VAT): 10%</div>
-            <div>• Thủ tục kiểm tra chuyên ngành: Miễn giấy phép (Trừ thiết bị thu phát sóng)</div>
-          </div>
+          {taxes && taxes.length > 0 && (
+            <div className="border p-3 rounded bg-white space-y-1">
+              <div className="font-bold text-blue-600">II. BIỂU THUẾ SUẤT ÁP DỤNG</div>
+              {taxes.map((t, i) => (
+                <div key={i}>
+                  • {t.label}: {t.rate}
+                  {t.citationCode ? ` (${t.citationCode})` : ''}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {citations && citations.length > 0 && (
+            <div className="border p-3 rounded bg-white space-y-1">
+              <div className="font-bold text-blue-600">III. VĂN BẢN PHÁP LUẬT THAM CHIẾU</div>
+              {citations.map((c) => (
+                <div key={c.id}>- {c.code} — {c.title}</div>
+              ))}
+            </div>
+          )}
 
           <p className="italic text-[11px] text-[#757682]">
             * Văn bản tóm tắt này có giá trị tham khảo tư vấn theo dữ liệu văn bản quy phạm pháp luật Hải quan hiện hành.
