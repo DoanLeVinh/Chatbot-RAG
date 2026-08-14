@@ -29,7 +29,7 @@ export const LogiChatLogo: React.FC<LogiChatLogoProps> = ({
       <div className={`relative flex items-center justify-center ${iconSizeClass}`}>
         <svg
           viewBox="0 0 100 100"
-          className="w-full h-full text-[#00236f]"
+          className="w-full h-full text-blue-600"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
@@ -54,7 +54,7 @@ export const LogiChatLogo: React.FC<LogiChatLogoProps> = ({
       </div>
 
       {!iconOnly && (
-        <span className={`font-bold tracking-tight text-[#00236f] ${textSizeClass}`}>
+        <span className={`font-bold tracking-tight text-blue-600 ${textSizeClass}`}>
           LogiChat
         </span>
       )}

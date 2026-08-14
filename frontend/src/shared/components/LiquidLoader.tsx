@@ -29,7 +29,7 @@ export const LiquidLoader: React.FC<LiquidLoaderProps> = ({ onComplete }) => {
     <AnimatePresence>
       <motion.div
         key="liquid-loader"
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-[#131b2e] overflow-hidden"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900 overflow-hidden"
         initial={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.5, ease: "easeInOut" }}
@@ -37,7 +37,7 @@ export const LiquidLoader: React.FC<LiquidLoaderProps> = ({ onComplete }) => {
         {/* The Ripple Effect that expands */}
         {stage === 'ripple' && (
           <motion.div
-            className="absolute inset-0 bg-[#faf8ff] z-10"
+            className="absolute inset-0 bg-blue-50 z-10"
             initial={{ clipPath: 'circle(0% at 50% 50%)' }}
             animate={{ clipPath: 'circle(150% at 50% 50%)' }}
             transition={{

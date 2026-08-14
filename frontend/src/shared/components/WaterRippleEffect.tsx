@@ -163,9 +163,9 @@ export const WaterRippleEffect: React.FC<WaterRippleEffectProps> = ({
       />
 
       {/* Floating Control Widget for Water Effects in bottom left corner */}
-      <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-[#c5c5d3] shadow-md text-xs font-medium text-[#131b2e] hover:bg-white transition-all">
+      <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-blue-200 shadow-md text-xs font-medium text-slate-900 hover:bg-white transition-all">
         <div className="flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-[16px] text-[#00236f] animate-pulse">
+          <span className="material-symbols-outlined text-[16px] text-blue-600 animate-pulse">
             water_drop
           </span>
           <span className="hidden sm:inline font-semibold">Hiệu ứng nước</span>
@@ -174,8 +174,8 @@ export const WaterRippleEffect: React.FC<WaterRippleEffectProps> = ({
           onClick={() => setEffectEnabled(!effectEnabled)}
           className={`px-2 py-0.5 rounded-full text-[11px] font-bold transition-colors ${
             effectEnabled
-              ? 'bg-[#00236f] text-white'
-              : 'bg-[#f2f3ff] text-[#757682]'
+              ? 'bg-blue-600 text-white'
+              : 'bg-blue-50 text-[#757682]'
           }`}
           title="Bật/tắt gợn sóng nước tương tác"
         >
@@ -184,7 +184,7 @@ export const WaterRippleEffect: React.FC<WaterRippleEffectProps> = ({
         {effectEnabled && (
           <button
             onClick={() => setRippleMode(rippleMode === 'wave' ? 'liquid' : 'wave')}
-            className="px-2 py-0.5 rounded-full text-[10px] bg-[#d0e1fb] text-[#00236f] hover:bg-[#b6c4ff] transition-colors"
+            className="px-2 py-0.5 rounded-full text-[10px] bg-blue-200 text-blue-600 hover:bg-[#b6c4ff] transition-colors"
             title="Đổi kiểu hiệu ứng nước"
           >
             {rippleMode === 'wave' ? 'Sóng' : 'Thạch'}

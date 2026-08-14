@@ -1,34 +1,42 @@
 """Database module using SQLite for LogiChat (Chatbot-RAG).
 
 Manages relational tables:
-  - users: User credentials and profile
+  - users: User credentials, roles ('user'/'admin'), and PBKDF2 authentication
   - sessions: Chat sessions tied to user_id for strict isolation
   - messages: Chat messages per session (user & AI with structured fields)
   - attachments: Document file uploads tied to session/user
   - settings: User preferences
+  - documents & document_parent_chunks & document_child_chunks: Two-tier PDR chunks with SHA-256 hash
 """
 import sqlite3
 import hashlib
+import hmac
+import base64
+import time
 import os
 import json
 import uuid
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 DB_PATH = Path.cwd() / 'data' / 'logichat.db'
+JWT_SECRET = os.getenv("JWT_SECRET", "logichat_super_secure_jwt_secret_key_2026")
+
+def calculate_sha256(content: str) -> str:
+    """Calculate SHA-256 hash for document content / chunk integrity verification."""
+    return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
 def get_connection():
     """Get SQLite database connection with row factory enabled."""
     DB_PATH.parent.mkdir(exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
-    # Enable foreign keys
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
 def init_db():
-    """Initialize database tables if they do not exist."""
+    """Initialize database tables and run automatic migrations."""
     with get_connection() as conn:
         cursor = conn.cursor()
         
@@ -40,9 +48,18 @@ def init_db():
                 password_hash TEXT NOT NULL,
                 salt TEXT NOT NULL,
                 full_name TEXT NOT NULL,
+                role TEXT DEFAULT 'user',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         """)
+
+        # Migration: Ensure 'role' column exists in users
+        cursor.execute("PRAGMA table_info(users);")
+        user_cols = [col["name"] for col in cursor.fetchall()]
+        if "role" not in user_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user';")
+
+
 
         # Table: sessions
         cursor.execute("""
@@ -106,17 +123,40 @@ def init_db():
             );
         """)
 
+        # Migration: Ensure 'theme' column exists in settings
+        cursor.execute("PRAGMA table_info(settings);")
+        setting_cols = [col["name"] for col in cursor.fetchall()]
+        if "theme" not in setting_cols:
+            cursor.execute("ALTER TABLE settings ADD COLUMN theme TEXT DEFAULT 'light';")
+
         # Table: documents
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id TEXT PRIMARY KEY,
                 filename TEXT NOT NULL,
                 title TEXT,
+                sha256_hash TEXT,
                 upload_date DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         """)
 
-        # Table: document_chunks
+        # Table: document_parent_chunks (Two-tier PDR Parent Chunks)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS document_parent_chunks (
+                parent_id TEXT PRIMARY KEY,
+                document_id TEXT,
+                source TEXT,
+                text TEXT NOT NULL,
+                chapter TEXT,
+                article_ids TEXT,
+                sha256_hash TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+            );
+        """)
+
+        # Table: document_chunks (Compatibility table for legacy queries)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS document_chunks (
                 id TEXT PRIMARY KEY,
@@ -131,7 +171,67 @@ def init_db():
             );
         """)
 
+        # Seed Default Admin Account if not exists
+        cursor.execute("SELECT id FROM users WHERE email = 'admin@logichat.vn';")
+        if not cursor.fetchone():
+            salt = os.urandom(16)
+            hashed = hashlib.pbkdf2_hmac('sha256', "Admin@123456".encode('utf-8'), salt, 100000).hex()
+            admin_id = f"admin-{uuid.uuid4().hex[:8]}"
+            cursor.execute(
+                "INSERT INTO users (id, email, password_hash, salt, full_name, role) VALUES (?, ?, ?, ?, ?, ?);",
+                (admin_id, "admin@logichat.vn", hashed, salt.hex(), "Quản Trị Viên Hệ Thống", "admin")
+            )
+
         conn.commit()
+
+
+# ─── Simple & Secure RFC 7519 JWT Token Implementation ────────────
+
+def _base64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
+
+def _base64url_decode(data_str: str) -> bytes:
+    padding = '=' * (4 - len(data_str) % 4)
+    return base64.urlsafe_b64decode((data_str + padding).encode('utf-8'))
+
+def create_jwt_token(payload: dict, expires_in: int = 86400 * 7) -> str:
+    """Create a signed JWT token with expiration timestamp."""
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload_copy = dict(payload)
+    payload_copy["exp"] = int(time.time()) + expires_in
+    payload_copy["iat"] = int(time.time())
+
+    encoded_header = _base64url_encode(json.dumps(header, separators=(',', ':')).encode('utf-8'))
+    encoded_payload = _base64url_encode(json.dumps(payload_copy, separators=(',', ':')).encode('utf-8'))
+
+    signature_input = f"{encoded_header}.{encoded_payload}".encode('utf-8')
+    signature = hmac.new(JWT_SECRET.encode('utf-8'), signature_input, hashlib.sha256).digest()
+    encoded_sig = _base64url_encode(signature)
+
+    return f"{encoded_header}.{encoded_payload}.{encoded_sig}"
+
+def verify_jwt_token(token: str) -> Optional[dict]:
+    """Verify and decode JWT token. Returns payload dict or None if invalid/expired."""
+    try:
+        parts = token.strip().split('.')
+        if len(parts) != 3:
+            return None
+
+        encoded_header, encoded_payload, encoded_sig = parts
+        signature_input = f"{encoded_header}.{encoded_payload}".encode('utf-8')
+        expected_sig = hmac.new(JWT_SECRET.encode('utf-8'), signature_input, hashlib.sha256).digest()
+        actual_sig = _base64url_decode(encoded_sig)
+
+        if not hmac.compare_digest(expected_sig, actual_sig):
+            return None
+
+        payload = json.loads(_base64url_decode(encoded_payload).decode('utf-8'))
+        if "exp" in payload and payload["exp"] < time.time():
+            return None  # Expired
+
+        return payload
+    except Exception:
+        return None
 
 
 # ─── Auth Logic (Password Hashing & User CRUD) ──────────────────────
@@ -143,7 +243,7 @@ def _hash_password(password: str, salt: bytes = None) -> tuple[str, str]:
     hashed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
     return hashed.hex(), salt.hex()
 
-def register_user(email: str, password: str, full_name: str) -> Dict[str, Any]:
+def register_user(email: str, password: str, full_name: str, role: str = "user") -> Dict[str, Any]:
     """Register a new user in SQLite."""
     email_clean = email.strip().lower()
     with get_connection() as conn:
@@ -154,132 +254,82 @@ def register_user(email: str, password: str, full_name: str) -> Dict[str, Any]:
 
         user_id = f"user-{uuid.uuid4().hex[:10]}"
         pwd_hash, salt_hex = _hash_password(password)
-        name_clean = full_name.strip() if full_name else email_clean.split('@')[0]
 
         cursor.execute(
-            "INSERT INTO users (id, email, password_hash, salt, full_name) VALUES (?, ?, ?, ?, ?);",
-            (user_id, email_clean, pwd_hash, salt_hex, name_clean)
+            """INSERT INTO users (id, email, password_hash, salt, full_name, role)
+               VALUES (?, ?, ?, ?, ?, ?);""",
+            (user_id, email_clean, pwd_hash, salt_hex, full_name.strip(), role)
         )
-        
-        # Initialize default settings for user
+
+        # Default Settings
         cursor.execute(
-            "INSERT OR REPLACE INTO settings (user_id, auto_cite, law_database, font_size) VALUES (?, 1, '2023-2024', 'medium');",
+            """INSERT INTO settings (user_id, auto_cite, theme, law_database, font_size)
+               VALUES (?, 1, 'light', '2023-2024', 'medium');""",
             (user_id,)
         )
+
         conn.commit()
+
+        token = create_jwt_token({"id": user_id, "email": email_clean, "role": role, "fullName": full_name.strip()})
 
         return {
             "id": user_id,
             "email": email_clean,
-            "fullName": name_clean
+            "fullName": full_name.strip(),
+            "role": role,
+            "token": token
         }
 
 def login_user(email: str, password: str) -> Dict[str, Any]:
-    """Authenticate user with email and password."""
+    """Authenticate user credentials."""
     email_clean = email.strip().lower()
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, email, password_hash, salt, full_name FROM users WHERE email = ?;", (email_clean,))
-        row = cursor.fetchone()
-        if not row:
+        cursor.execute("SELECT id, email, password_hash, salt, full_name, role FROM users WHERE email = ?;", (email_clean,))
+        user_row = cursor.fetchone()
+
+        if not user_row:
             raise ValueError("Email hoặc mật khẩu không chính xác.")
 
-        stored_hash = row["password_hash"]
-        salt_bytes = bytes.fromhex(row["salt"])
-        computed_hash, _ = _hash_password(password, salt_bytes)
+        salt_bytes = bytes.fromhex(user_row["salt"])
+        calculated_hash, _ = _hash_password(password, salt=salt_bytes)
 
-        if computed_hash != stored_hash:
+        if calculated_hash != user_row["password_hash"]:
             raise ValueError("Email hoặc mật khẩu không chính xác.")
+
+        token = create_jwt_token({
+            "id": user_row["id"],
+            "email": user_row["email"],
+            "role": user_row["role"] or "user",
+            "fullName": user_row["full_name"]
+        })
 
         return {
-            "id": row["id"],
-            "email": row["email"],
-            "fullName": row["full_name"]
+            "id": user_row["id"],
+            "email": user_row["email"],
+            "fullName": user_row["full_name"],
+            "role": user_row["role"] or "user",
+            "token": token
         }
 
-
-# ─── Sessions Logic ─────────────────────────────────────────────────
-
-def get_user_sessions(user_id: Optional[str], search: str = None, tag: str = None, page: int = 1, limit: int = 20) -> Dict[str, Any]:
-    """Retrieve user-isolated sessions with filtering and pagination."""
+def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve user record by user ID."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        
-        query = "SELECT * FROM sessions WHERE 1=1"
-        params = []
+        cursor.execute("SELECT id, email, full_name, role, created_at FROM users WHERE id = ?;", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            res = dict(row)
+            res["fullName"] = res.get("full_name")
+            return res
+        return None
 
-        if user_id:
-            query += " AND (user_id = ? OR user_id IS NULL)"
-            params.append(user_id)
-        else:
-            query += " AND user_id IS NULL"
 
-        if search:
-            query += " AND (title LIKE ? OR preview_text LIKE ?)"
-            search_pattern = f"%{search}%"
-            params.extend([search_pattern, search_pattern])
-
-        if tag:
-            query += " AND category_tag = ?"
-            params.append(tag)
-
-        query += " ORDER BY updated_at DESC"
-
-        # Count total
-        count_query = f"SELECT COUNT(*) FROM ({query})"
-        cursor.execute(count_query, params)
-        total = cursor.fetchone()[0]
-
-        # Pagination
-        offset = (page - 1) * limit
-        query += " LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-
-        sessions_list = []
-        for r in rows:
-            # Check message count
-            cursor.execute("SELECT COUNT(*) FROM messages WHERE session_id = ?;", (r["id"],))
-            msg_count = cursor.fetchone()[0]
-
-            # Fetch references/attachments if available
-            cursor.execute("SELECT * FROM attachments WHERE session_id = ?;", (r["id"],))
-            att_rows = cursor.fetchall()
-            atts = [
-                {
-                    "id": a["id"],
-                    "name": a["file_name"],
-                    "size": a["file_size"],
-                    "type": a["file_type"],
-                    "url": a["file_url"]
-                }
-                for a in att_rows
-            ]
-
-            sessions_list.append({
-                "id": r["id"],
-                "userId": r["user_id"],
-                "title": r["title"],
-                "group": r["group_name"],
-                "updatedAt": r["updated_at"],
-                "categoryTag": r["category_tag"],
-                "previewText": r["preview_text"] or "",
-                "messageCount": msg_count,
-                "attachments": atts,
-            })
-
-        return {
-            "sessions": sessions_list,
-            "total": total,
-            "page": page,
-            "hasMore": (offset + limit) < total
-        }
+# ─── Sessions & Chat History (Strict User Isolation) ──────────────
 
 def create_session(user_id: Optional[str], title: str = "Hội thoại tư vấn mới", category_tag: str = "Tư vấn Hải quan") -> Dict[str, Any]:
     """Create a new chat session."""
-    session_id = f"session-{uuid.uuid4().hex[:10]}"
+    session_id = f"sess-{uuid.uuid4().hex[:10]}"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     with get_connection() as conn:
@@ -288,15 +338,6 @@ def create_session(user_id: Optional[str], title: str = "Hội thoại tư vấn
             """INSERT INTO sessions (id, user_id, title, category_tag, group_name, preview_text, created_at, updated_at)
                VALUES (?, ?, ?, ?, 'TODAY', 'Bắt đầu đặt câu hỏi pháp lý mới...', ?, ?);""",
             (session_id, user_id, title, category_tag, now_str, now_str)
-        )
-        
-        # Insert initial welcome message
-        welcome_msg_id = f"m-{uuid.uuid4().hex[:8]}"
-        timestamp = datetime.now().strftime("%H:%M")
-        cursor.execute(
-            """INSERT INTO messages (id, session_id, sender, text, timestamp)
-               VALUES (?, ?, 'ai', ?, ?);""",
-            (welcome_msg_id, session_id, 'Xin chào. Tôi là Trợ lý Pháp lý Hải quan LogiChat. Tôi có thể giúp gì cho bạn về quy định xuất nhập khẩu, mã HS, thuế quan hoặc thủ tục thông quan?', timestamp)
         )
         conn.commit()
 
@@ -308,23 +349,107 @@ def create_session(user_id: Optional[str], title: str = "Hội thoại tư vấn
             "updatedAt": "Vừa xong",
             "categoryTag": category_tag,
             "previewText": "Bắt đầu đặt câu hỏi pháp lý mới...",
-            "messages": [
-                {
-                    "id": welcome_msg_id,
-                    "sender": "ai",
-                    "text": 'Xin chào. Tôi là Trợ lý Pháp lý Hải quan LogiChat. Tôi có thể giúp gì cho bạn về quy định xuất nhập khẩu, mã HS, thuế quan hoặc thủ tục thông quan?',
-                    "timestamp": timestamp,
-                }
-            ],
+            "messages": [],
             "references": [],
             "attachments": []
         }
 
-def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Retrieve session details with all messages and citations."""
+def get_user_sessions(user_id: Optional[str] = None, search: Optional[str] = None, tag: Optional[str] = None, page: int = 1, limit: int = 50) -> Dict[str, Any]:
+    """Get chat sessions isolated by user_id with search/filter and pagination."""
+    offset = (page - 1) * limit
+    params: list[Any] = []
+
+    sql = "SELECT * FROM sessions WHERE 1=1"
+    if user_id:
+        sql += " AND user_id = ?"
+        params.append(user_id)
+    else:
+        sql += " AND user_id IS NULL"
+
+    if search:
+        sql += " AND (title LIKE ? OR preview_text LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    if tag and tag != "ALL":
+        sql += " AND category_tag = ?"
+        params.append(tag)
+
+    sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?;"
+    params.extend([limit, offset])
+
     with get_connection() as conn:
         cursor = conn.cursor()
-        
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+
+        sessions = []
+        for r in rows:
+            cursor.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC;", (r["id"],))
+            msg_rows = cursor.fetchall()
+
+            messages = []
+            citations_all = []
+            for m in msg_rows:
+                citations = json.loads(m["citations_json"]) if m["citations_json"] else []
+                if citations:
+                    citations_all.extend(citations)
+
+                messages.append({
+                    "id": m["id"],
+                    "sender": m["sender"],
+                    "text": m["text"],
+                    "timestamp": m["timestamp"],
+                    "hsCode": m["hs_code"],
+                    "taxes": json.loads(m["taxes_json"]) if m["taxes_json"] else None,
+                    "inspections": json.loads(m["inspections_json"]) if m["inspections_json"] else None,
+                    "citations": citations,
+                    "summaryPdf": json.loads(m["summary_pdf_json"]) if m["summary_pdf_json"] else None,
+                })
+
+            cursor.execute("SELECT * FROM attachments WHERE session_id = ?;", (r["id"],))
+            att_rows = cursor.fetchall()
+            attachments = [
+                {
+                    "id": a["id"],
+                    "name": a["file_name"],
+                    "size": a["file_size"],
+                    "type": a["file_type"],
+                    "url": a["file_url"]
+                }
+                for a in att_rows
+            ]
+
+            unique_citations = []
+            seen_codes = set()
+            for c in citations_all:
+                if c.get("code") and c["code"] not in seen_codes:
+                    seen_codes.add(c["code"])
+                    unique_citations.append(c)
+
+            sessions.append({
+                "id": r["id"],
+                "userId": r["user_id"],
+                "title": r["title"],
+                "group": r["group_name"],
+                "updatedAt": r["updated_at"],
+                "categoryTag": r["category_tag"],
+                "previewText": r["preview_text"] or "",
+                "messages": messages,
+                "references": unique_citations,
+                "attachments": attachments
+            })
+
+        return {
+            "sessions": sessions,
+            "page": page,
+            "limit": limit,
+            "hasMore": len(sessions) == limit
+        }
+
+def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Get full details of a session, enforcing user ownership."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
         if user_id:
             cursor.execute("SELECT * FROM sessions WHERE id = ? AND (user_id = ? OR user_id IS NULL);", (session_id, user_id))
         else:
@@ -334,47 +459,32 @@ def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Option
         if not s_row:
             return None
 
-        # Fetch messages
         cursor.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC;", (session_id,))
-        m_rows = cursor.fetchall()
+        msg_rows = cursor.fetchall()
 
         messages = []
         references = []
-        ref_seen = set()
+        seen_refs = set()
 
-        for m in m_rows:
-            taxes = json.loads(m["taxes_json"]) if m["taxes_json"] else None
-            inspections = json.loads(m["inspections_json"]) if m["inspections_json"] else None
-            citations = json.loads(m["citations_json"]) if m["citations_json"] else None
-            summary_pdf = json.loads(m["summary_pdf_json"]) if m["summary_pdf_json"] else None
+        for m in msg_rows:
+            citations = json.loads(m["citations_json"]) if m["citations_json"] else []
+            for c in citations:
+                if c.get("code") and c["code"] not in seen_refs:
+                    seen_refs.add(c["code"])
+                    references.append(c)
 
-            if citations:
-                for c in citations:
-                    code = c.get("code")
-                    if code and code not in ref_seen:
-                        ref_seen.add(code)
-                        references.append(c)
-
-            msg_obj = {
+            messages.append({
                 "id": m["id"],
                 "sender": m["sender"],
                 "text": m["text"],
                 "timestamp": m["timestamp"],
-            }
-            if m["hs_code"]:
-                msg_obj["hsCode"] = m["hs_code"]
-            if taxes:
-                msg_obj["taxes"] = taxes
-            if inspections:
-                msg_obj["inspections"] = inspections
-            if citations:
-                msg_obj["citations"] = citations
-            if summary_pdf:
-                msg_obj["summaryPdf"] = summary_pdf
+                "hsCode": m["hs_code"],
+                "taxes": json.loads(m["taxes_json"]) if m["taxes_json"] else None,
+                "inspections": json.loads(m["inspections_json"]) if m["inspections_json"] else None,
+                "citations": citations,
+                "summaryPdf": json.loads(m["summary_pdf_json"]) if m["summary_pdf_json"] else None,
+            })
 
-            messages.append(msg_obj)
-
-        # Fetch attachments
         cursor.execute("SELECT * FROM attachments WHERE session_id = ?;", (session_id,))
         att_rows = cursor.fetchall()
         attachments = [
@@ -415,7 +525,7 @@ def delete_session(session_id: str, user_id: Optional[str] = None) -> bool:
 def add_message(session_id: str, sender: str, text: str, timestamp: str,
                 hs_code: str = None, taxes: list = None, inspections: dict = None,
                 citations: list = None, summary_pdf: dict = None) -> str:
-    """Add a new chat message to SQLite database."""
+    """Add a new chat message to SQLite database with auto-session recovery."""
     msg_id = f"{sender}-{uuid.uuid4().hex[:8]}"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -426,6 +536,17 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
 
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        # Auto-recover session if it doesn't exist to prevent foreign key errors
+        cursor.execute("SELECT id, title FROM sessions WHERE id = ?;", (session_id,))
+        s_row = cursor.fetchone()
+        if not s_row:
+            cursor.execute(
+                """INSERT INTO sessions (id, user_id, title, category_tag, group_name, preview_text, created_at, updated_at)
+                   VALUES (?, NULL, 'Hội thoại tư vấn mới', 'Tư vấn Hải quan', 'TODAY', ?, ?, ?);""",
+                (session_id, text[:100] if text else "Bắt đầu...", now_str, now_str)
+            )
+
         cursor.execute(
             """INSERT INTO messages (id, session_id, sender, text, timestamp, hs_code, taxes_json, inspections_json, citations_json, summary_pdf_json)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
@@ -435,8 +556,8 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
         # Update session title and preview if user message
         if sender == 'user':
             cursor.execute("SELECT title FROM sessions WHERE id = ?;", (session_id,))
-            s_row = cursor.fetchone()
-            new_title = s_row["title"] if s_row and s_row["title"] != "Hội thoại tư vấn mới" else text[:36]
+            current_s_row = cursor.fetchone()
+            new_title = current_s_row["title"] if current_s_row and current_s_row["title"] != "Hội thoại tư vấn mới" else text[:36]
             cursor.execute(
                 "UPDATE sessions SET title = ?, preview_text = ?, updated_at = ? WHERE id = ?;",
                 (new_title, text[:100], now_str, session_id)
@@ -451,8 +572,19 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
 def save_attachment(session_id: Optional[str], user_id: Optional[str], file_name: str, file_size: str, file_type: str, file_url: str) -> Dict[str, Any]:
     """Save metadata of uploaded document file."""
     att_id = f"att-{uuid.uuid4().hex[:8]}"
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        if session_id:
+            cursor.execute("SELECT id FROM sessions WHERE id = ?;", (session_id,))
+            if not cursor.fetchone():
+                cursor.execute(
+                    """INSERT INTO sessions (id, user_id, title, category_tag, group_name, preview_text, created_at, updated_at)
+                       VALUES (?, ?, 'Hội thoại tư vấn mới', 'Tư vấn Hải quan', 'TODAY', 'Đính kèm tệp', ?, ?);""",
+                    (session_id, user_id, now_str, now_str)
+                )
+
         cursor.execute(
             """INSERT INTO attachments (id, session_id, user_id, file_name, file_size, file_type, file_url)
                VALUES (?, ?, ?, ?, ?, ?, ?);""",
@@ -469,7 +601,7 @@ def save_attachment(session_id: Optional[str], user_id: Optional[str], file_name
         }
 
 def get_user_settings(user_id: str) -> Dict[str, Any]:
-    """Get settings for a user (or default)."""
+    """Get settings for a user."""
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM settings WHERE user_id = ?;", (user_id,))
@@ -509,7 +641,7 @@ def update_user_settings(user_id: str, auto_cite: bool, law_database: str, font_
 def get_all_users() -> List[Dict[str, Any]]:
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, email, full_name, created_at FROM users ORDER BY created_at DESC;")
+        cursor.execute("SELECT id, email, full_name, role, created_at FROM users ORDER BY created_at DESC;")
         rows = cursor.fetchall()
         return [dict(r) for r in rows]
 
@@ -520,51 +652,274 @@ def delete_user(user_id: str) -> bool:
         conn.commit()
         return cursor.rowcount > 0
 
-def update_user(user_id: str, email: str, full_name: str, password: Optional[str] = None) -> bool:
+def update_user(user_id: str, email: str, full_name: str, password: Optional[str] = None, role: Optional[str] = None) -> bool:
     with get_connection() as conn:
         cursor = conn.cursor()
+        updates = ["email = ?", "full_name = ?"]
+        params = [email.strip().lower(), full_name.strip()]
+
+        if role:
+            updates.append("role = ?")
+            params.append(role)
+
         if password:
             pwd_hash, salt_hex = _hash_password(password)
-            cursor.execute(
-                "UPDATE users SET email = ?, full_name = ?, password_hash = ?, salt = ? WHERE id = ?;",
-                (email.strip().lower(), full_name.strip(), pwd_hash, salt_hex, user_id)
-            )
-        else:
-            cursor.execute(
-                "UPDATE users SET email = ?, full_name = ? WHERE id = ?;",
-                (email.strip().lower(), full_name.strip(), user_id)
-            )
+            updates.extend(["password_hash = ?", "salt = ?"])
+            params.extend([pwd_hash, salt_hex])
+
+        params.append(user_id)
+        sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?;"
+        cursor.execute(sql, params)
         conn.commit()
         return cursor.rowcount > 0
 
-# ─── Admin API (Chunks) ─────────────────────────────────────────────
 
-def get_all_chunks() -> List[Dict[str, Any]]:
+# ─── Two-Tier PDR & SHA-256 Hash Integrity Verification ────────────
+
+def seed_parent_chunks_from_json(json_path: Path):
+    """Seed Parent Chunks from JSON into document_parent_chunks with SHA-256."""
+    if not json_path.exists():
+        return 0
+
+    with open(json_path, 'r', encoding='utf-8') as f:
+        parents = json.load(f)
+
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM document_chunks ORDER BY chapter, parent_id;")
+        inserted = 0
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        for p in parents:
+            parent_id = p.get("parent_id")
+            source = str(p.get("source") or "")
+            text = str(p.get("text") or "")
+            chapter = str(p.get("chapter") or "")
+            article_ids_raw = p.get("article_ids", [])
+            article_ids_str = ", ".join(article_ids_raw) if isinstance(article_ids_raw, list) else str(article_ids_raw or "")
+            sha256_hash = calculate_sha256(f"{source}|{chapter}|{article_ids_str}|{text}")
+
+            cursor.execute(
+                """
+                INSERT INTO document_parent_chunks (parent_id, source, text, chapter, article_ids, sha256_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(parent_id) DO UPDATE SET
+                    source = excluded.source,
+                    text = excluded.text,
+                    chapter = excluded.chapter,
+                    article_ids = excluded.article_ids,
+                    sha256_hash = excluded.sha256_hash,
+                    updated_at = excluded.updated_at;
+                """,
+                (parent_id, source, text, chapter, article_ids_str, sha256_hash, now_str, now_str)
+            )
+            inserted += 1
+
+        conn.commit()
+        return inserted
+
+def get_all_chunks(page: int = 1, limit: int = 50, search: Optional[str] = None) -> Dict[str, Any]:
+    """Get parent chunks with pagination and search."""
+    offset = (page - 1) * limit
+    params = []
+
+    sql_count = "SELECT COUNT(*) as count FROM document_parent_chunks WHERE 1=1"
+    sql = "SELECT * FROM document_parent_chunks WHERE 1=1"
+
+    if search:
+        clause = " AND (text LIKE ? OR source LIKE ? OR chapter LIKE ? OR article_ids LIKE ?)"
+        sql_count += clause
+        sql += clause
+        search_pattern = f"%{search}%"
+        params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
+
+    sql += " ORDER BY source, chapter, parent_id LIMIT ? OFFSET ?;"
+    count_params = list(params)
+    params.extend([limit, offset])
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(sql_count, count_params)
+        total_count = cursor.fetchone()["count"]
+
+        cursor.execute(sql, params)
         rows = cursor.fetchall()
         result = []
         for r in rows:
             chunk = dict(r)
-            if chunk["article_ids"]:
-                chunk["article_ids"] = [x.strip() for x in chunk["article_ids"].split(",")]
+            if chunk.get("article_ids"):
+                chunk["article_ids"] = [x.strip() for x in chunk["article_ids"].split(",") if x.strip()]
             else:
                 chunk["article_ids"] = []
             result.append(chunk)
-        return result
+
+        # Fallback to document_chunks if document_parent_chunks is empty
+        if not result and total_count == 0:
+            cursor.execute("SELECT * FROM document_chunks ORDER BY chapter, parent_id LIMIT ? OFFSET ?;", (limit, offset))
+            rows = cursor.fetchall()
+            for r in rows:
+                chunk = dict(r)
+                if chunk.get("article_ids"):
+                    chunk["article_ids"] = [x.strip() for x in chunk["article_ids"].split(",") if x.strip()]
+                else:
+                    chunk["article_ids"] = []
+                chunk["sha256_hash"] = calculate_sha256(chunk.get("text", ""))
+                result.append(chunk)
+            total_count = len(result)
+
+        return {
+            "chunks": result,
+            "total": total_count,
+            "page": page,
+            "limit": limit,
+            "totalPages": (total_count + limit - 1) // limit if limit > 0 else 1
+        }
 
 def update_chunk(parent_id: str, text: str, chapter: str, article_ids: List[str]) -> bool:
+    """Update parent chunk in SQLite and update SHA-256 hash."""
     with get_connection() as conn:
         cursor = conn.cursor()
         article_ids_str = ", ".join(article_ids)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Get existing source
+        cursor.execute("SELECT source FROM document_parent_chunks WHERE parent_id = ?;", (parent_id,))
+        row = cursor.fetchone()
+        source = row["source"] if row else ""
+        sha256_hash = calculate_sha256(f"{source}|{chapter}|{article_ids_str}|{text}")
+
+        cursor.execute(
+            """UPDATE document_parent_chunks 
+               SET text = ?, chapter = ?, article_ids = ?, sha256_hash = ?, updated_at = ? 
+               WHERE parent_id = ?;""",
+            (text, chapter, article_ids_str, sha256_hash, now_str, parent_id)
+        )
+        
+        # Also update legacy document_chunks table if present
         cursor.execute(
             "UPDATE document_chunks SET text = ?, chapter = ?, article_ids = ?, updated_at = ? WHERE parent_id = ?;",
             (text, chapter, article_ids_str, now_str, parent_id)
         )
+
         conn.commit()
-        return cursor.rowcount > 0
+        return True
+
+def verify_document_integrity(identifier: str) -> Dict[str, Any]:
+    """Verify SHA-256 integrity hash of a Parent Chunk or Legal Citation."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Search by parent_id or article_id
+        cursor.execute(
+            "SELECT * FROM document_parent_chunks WHERE parent_id = ? OR article_ids LIKE ? LIMIT 1;",
+            (identifier, f"%{identifier}%")
+        )
+        row = cursor.fetchone()
+        if not row:
+            return {
+                "valid": False,
+                "message": f"Không tìm thấy bản ghi pháp luật với mã: {identifier}"
+            }
+
+        source = row["source"] or ""
+        chapter = row["chapter"] or ""
+        article_ids = row["article_ids"] or ""
+        text = row["text"] or ""
+        stored_hash = row["sha256_hash"] or ""
+
+        current_calculated_hash = calculate_sha256(f"{source}|{chapter}|{article_ids}|{text}")
+        is_intact = (stored_hash == current_calculated_hash)
+
+        return {
+            "valid": is_intact,
+            "parentId": row["parent_id"],
+            "source": source,
+            "chapter": chapter,
+            "articleIds": [x.strip() for x in article_ids.split(",") if x.strip()],
+            "storedHash": stored_hash,
+            "calculatedHash": current_calculated_hash,
+            "updatedAt": row["updated_at"],
+            "status": "VERIFIED_AUTHENTIC" if is_intact else "TAMPER_DETECTED"
+        }
+
+def get_documents_hierarchy() -> List[Dict[str, Any]]:
+    """Get list of PDF sources and their chapters for tree view."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Get distinct sources
+        cursor.execute("SELECT DISTINCT source FROM document_parent_chunks ORDER BY source;")
+        sources = cursor.fetchall()
+        
+        result = []
+        for s_row in sources:
+            source = s_row["source"]
+            if not source:
+                continue
+                
+            # Get chapters for this source
+            cursor.execute(
+                "SELECT DISTINCT chapter, COUNT(*) as chunk_count FROM document_parent_chunks WHERE source = ? GROUP BY chapter ORDER BY chapter;",
+                (source,)
+            )
+            chap_rows = cursor.fetchall()
+            chapters = []
+            total_chunks = 0
+            for c_row in chap_rows:
+                chapter = c_row["chapter"] or "Không phân chương"
+                count = c_row["chunk_count"]
+                total_chunks += count
+                chapters.append({
+                    "chapter": chapter,
+                    "chunk_count": count
+                })
+            
+            result.append({
+                "source": source,
+                "total_chunks": total_chunks,
+                "chapters": chapters
+            })
+            
+        return result
+
+def get_chunks_by_hierarchy(source: str, chapter: str) -> List[Dict[str, Any]]:
+    """Get chunks belonging to a specific source and chapter."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        if chapter == "Không phân chương":
+            cursor.execute(
+                "SELECT * FROM document_parent_chunks WHERE source = ? AND (chapter IS NULL OR chapter = '') ORDER BY parent_id;",
+                (source,)
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM document_parent_chunks WHERE source = ? AND chapter = ? ORDER BY parent_id;",
+                (source, chapter)
+            )
+            
+        rows = cursor.fetchall()
+        result = []
+        for r in rows:
+            chunk = dict(r)
+            if chunk.get("article_ids"):
+                chunk["article_ids"] = [x.strip() for x in chunk["article_ids"].split(",") if x.strip()]
+            else:
+                chunk["article_ids"] = []
+            result.append(chunk)
+            
+        return result
+
+def delete_document_by_source(source: str) -> bool:
+    """Delete all chunks belonging to a specific source."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM document_parent_chunks WHERE source = ?;", (source,))
+        deleted_parents = cursor.rowcount
+        
+        # Try legacy table
+        cursor.execute("DELETE FROM document_chunks WHERE document_id IN (SELECT id FROM documents WHERE filename LIKE ?);", (f"%{source}%",))
+        
+        conn.commit()
+        return deleted_parents > 0
 
 # Initialize DB upon import
 init_db()

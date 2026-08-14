@@ -23,6 +23,7 @@ import argparse
 import re
 import urllib.request
 import urllib.error
+from typing import Optional, List, Dict, Any
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -48,7 +49,10 @@ DEFAULT_MODEL = os.getenv("LOCAL_EMBEDDING_MODEL", "sentence-transformers/paraph
 # (cosine similarity trên normalized vectors, giá trị 0–1)
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.25"))
 DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+raw_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
+GEMINI_API_KEY = raw_key.strip().strip('"').strip("'")
+if not GEMINI_API_KEY.startswith("AIza"):
+    GEMINI_API_KEY = None
 GEMINI_MODEL_CANDIDATES = []
 for _candidate in [
     DEFAULT_GEMINI_MODEL,
@@ -66,29 +70,63 @@ for _candidate in [
 # Query Refinement — Chuẩn hóa từ viết tắt chuyên ngành hải quan
 # ===========================================================================
 QUERY_REFINEMENT_MAP = {
+    # Giấy chứng nhận xuất xứ
     "C/O": "Giấy chứng nhận xuất xứ hàng hóa",
     "c/o": "Giấy chứng nhận xuất xứ hàng hóa",
     "CO ": "Giấy chứng nhận xuất xứ hàng hóa ",
-    "HS Code": "Mã số phân loại hàng hóa",
-    "hs code": "mã số phân loại hàng hóa",
-    "mã HS": "mã số hàng hóa",
+    "form D": "mẫu D giấy chứng nhận xuất xứ ASEAN",
+    "form E": "mẫu E giấy chứng nhận xuất xứ ACFTA",
+    "form AK": "mẫu AK giấy chứng nhận xuất xứ ASEAN-Hàn Quốc",
+    # Mã HS
+    "HS Code": "Mã số phân loại hàng hóa xuất nhập khẩu",
+    "hs code": "mã số phân loại hàng hóa xuất nhập khẩu",
+    "mã HS": "mã số hàng hóa phân loại hải quan",
+    # Hệ thống
     "VNACCS": "Hệ thống thông quan hàng hóa tự động",
     "vnaccs": "hệ thống thông quan hàng hóa tự động",
     "VCIS": "Hệ thống thông tin tình báo hải quan",
     "vcis": "hệ thống thông tin tình báo hải quan",
-    "CIF": "giá CIF (tiền hàng, bảo hiểm và cước vận chuyển)",
-    "FOB": "giá FOB (giao hàng lên tàu)",
-    "EXW": "giá EXW (giao tại xưởng)",
-    "XNK": "xuất nhập khẩu",
-    "xnk": "xuất nhập khẩu",
+    # Điều kiện thương mại
+    "CIF": "giá CIF tiền hàng bảo hiểm và cước vận chuyển trị giá hải quan",
+    "FOB": "giá FOB giao hàng lên tàu trị giá hải quan",
+    "EXW": "giá EXW giao tại xưởng",
+    "DAP": "giao hàng tại nơi đến",
+    "DDP": "giao hàng đã nộp thuế",
+    # Nhập / Xuất khẩu
+    "XNK": "xuất nhập khẩu hàng hóa",
+    "xnk": "xuất nhập khẩu hàng hóa",
+    "NK": "nhập khẩu hàng hóa",
+    "XK": "xuất khẩu hàng hóa",
+    "nk": "nhập khẩu hàng hóa",
+    "xk": "xuất khẩu hàng hóa",
     "SXXK": "sản xuất xuất khẩu",
     "sxxk": "sản xuất xuất khẩu",
-    "NK": "nhập khẩu",
-    "XK": "xuất khẩu",
+    # Tờ khai và thủ tục
     "tờ khai HQ": "tờ khai hải quan",
-    "form D": "mẫu D giấy chứng nhận xuất xứ",
-    "form E": "mẫu E giấy chứng nhận xuất xứ",
-    "form AK": "mẫu AK giấy chứng nhận xuất xứ",
+    "tờ khai hq": "tờ khai hải quan",
+    "TK HQ": "tờ khai hải quan",
+    "KTCN": "kiểm tra chuyên ngành",
+    "ktcn": "kiểm tra chuyên ngành hàng hóa nhập khẩu",
+    # Thuế
+    "thuế XNK": "thuế xuất nhập khẩu",
+    "thuế NK": "thuế nhập khẩu hàng hóa",
+    "thuế XK": "thuế xuất khẩu hàng hóa",
+    "GTGT": "thuế giá trị gia tăng",
+    "gtgt": "thuế giá trị gia tăng",
+    "VAT": "thuế giá trị gia tăng",
+    "TTĐB": "thuế tiêu thụ đặc biệt",
+    "MFN": "thuế suất tối huệ quốc Most Favoured Nation",
+    # Hiệp định thương mại
+    "VJEPA": "Hiệp định Đối tác Kinh tế Việt Nam Nhật Bản",
+    "VKFTA": "Hiệp định thương mại tự do Việt Nam Hàn Quốc",
+    "EVFTA": "Hiệp định thương mại tự do Việt Nam EU",
+    "CPTPP": "Hiệp định Đối tác Toàn diện và Tiến bộ xuyên Thái Bình Dương",
+    "ACFTA": "Hiệp định thương mại tự do ASEAN Trung Quốc",
+    "ATIGA": "Hiệp định thương mại hàng hóa ASEAN",
+    # Tổng quát
+    "quy định xuất nhập khẩu": "quy định pháp luật xuất khẩu nhập khẩu hàng hóa thủ tục hải quan",
+    "thủ tục nhập khẩu": "thủ tục hải quan nhập khẩu hàng hóa tờ khai",
+    "thủ tục xuất khẩu": "thủ tục hải quan xuất khẩu hàng hóa tờ khai",
 }
 
 
@@ -104,73 +142,25 @@ def refine_query(query: str) -> str:
 # ===========================================================================
 # Agent System Prompt — Đặc tả đầy đủ theo openspec
 # ===========================================================================
-AGENT_SYSTEM_PROMPT = """Bạn là **Trợ lý Agent AI Chuyên gia Tra cứu Pháp luật Hải quan và Xuất nhập khẩu Việt Nam**.
-Nhiệm vụ của bạn là hỗ trợ người dùng tra cứu quy định pháp luật, thủ tục hải quan, thuế, và mã HS bằng cách phân tích câu hỏi và sử dụng công cụ (Tool) tra cứu dữ liệu pháp luật khi cần thiết.
+AGENT_SYSTEM_PROMPT = """Bạn là Trợ lý Pháp lý Hải quan LogiChat, chuyên tra cứu văn bản pháp luật Việt Nam về hải quan và xuất nhập khẩu.
 
-==================== DÃY CÔNG CỤ ĐƯỢC CẤP (AVAILABLE TOOLS) ====================
-1. `search_legal_docs(query: str) -> str`:
-   - Chức năng: Tìm kiếm các đoạn văn bản pháp luật hải quan/XNK liên quan trong cơ sở dữ liệu RAG (Parent-Document).
-   - Khi nào dùng: Dùng cho MỌI câu hỏi liên quan đến quy định, thủ tục, thuế suất, điều kiện XNK, mã HS, xử phạt hành chính.
+QUY TẮC:
+1. Chỉ dùng thông tin từ ngữ cảnh được cung cấp. KHÔNG bịa đặt số điều, số quyết định.
+2. Luôn trích dẫn cụ thể: "Theo Điều X, Khoản Y, [Tên văn bản]".
+3. Nếu không đủ thông tin, nói rõ và gợi ý hỏi cụ thể hơn.
+4. Từ chối tư vấn lách thuế.
 
-==================== QUY TRÌNH SUY NGHĨ VÀ XỬ LÝ (AGENT REASONING) ====================
-Khi nhận được yêu cầu từ người dùng, bạn BẮT BUỘC thực hiện theo 4 bước suy luận sau:
+CẤU TRÚC TRẢ LỜI:
 
-1. **Bước 1: Phân loại Ý định (Intent Classification)**
-   - *Trường hợp A (Hỏi về Luật/Thủ tục XNK):* Cần sử dụng tool `search_legal_docs`.
-   - *Trường hợp B (Hỏi ngoài phạm vi - Out of Domain - ví dụ: Xây dựng, Thời tiết, Tình cảm):* Từ chối thẳng thắn, KHÔNG gọi tool.
-   - *Trường hợp C (Trò chuyện xã giao - Chào hỏi, Cảm ơn):* Phản hồi thân thiện, KHÔNG gọi tool.
+**Tóm tắt:** (1-2 câu trả lời trực tiếp)
 
-2. **Bước 2: Chuẩn hóa Từ khóa Tìm kiếm (Query Refinement)**
-   - Chuyển đổi ngôn ngữ tự nhiên hoặc từ viết tắt của người dùng thành từ khóa pháp lý chuẩn xác trước khi truyền vào tool `search_legal_docs`.
-   - Ví dụ: "Thuế iPhone" -> "Thuế nhập khẩu thiết bị điện thoại di động".
-   - Ví dụ: "C/O form E" -> "Giấy chứng nhận xuất xứ hàng hóa Form E".
+**Quy định chi tiết:**
+- Trích dẫn Điều/Khoản cụ thể với nội dung tóm tắt
 
-3. **Bước 3: Đánh giá Kết quả trả về từ Tool (Observation Evaluation)**
-   - Đọc kết quả từ `search_legal_docs`.
-   - Nếu kết quả RỖNG hoặc KHÔNG chứa thông tin liên quan: Kết luận rằng cơ sở dữ liệu hiện tại chưa có thông tin này và phản hồi theo quy định.
+**Lưu ý:** (nếu có thủ tục, thời hạn, hoặc điều kiện quan trọng)
 
-4. **Bước 4: Tổng hợp Phản hồi (Final Answer Generation)**
-   - Tạo câu trả lời dựa HOÀN TOÀN vào thông tin thu được từ Tool.
-
-==================== NGUYÊN TẮC PHẢN HỒI NGHIÊM NGẶT (STRICT RULES) ====================
-
-1. **NGUYÊN TẮC GROUNDEDNESS (KHÔNG TỰ SUY ĐOÁN):**
-   - Chỉ trả lời dựa trên thông tin nhận được từ tool `search_legal_docs`. Tuyệt đối không dùng kiến thức huấn luyện ngoài.
-   - Nếu tool trả về kết quả rỗng, trả lời nguyên văn: 
-     "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này."
-
-2. **TRÍCH DẪN NGUỒN CỤ THỂ:**
-   - Trích dẫn Tên văn bản + Điều/Khoản trực tiếp trong câu trả lời (Ví dụ: [Theo Điều 25, Luật Hải quan 2014]).
-   - Tạo mục "📋 Văn bản pháp luật tham chiếu" ở cuối bài.
-
-3. **XỬ LÝ CÁC TÌNH HUỐNG GIỚI HẠN (BOUNDARIES):**
-   - *Yêu cầu tính tiền thuế cụ thể:* Cung cấp công thức ($Thuế = Trị\\ giá\\ tính\\ thuế \\times Thuế\\ suất$) và lưu ý tiền thuế thực tế phụ thuộc mã HS, tỷ giá và trị giá hải quan thực tế. KHÔNG tự đưa ra số tiền cụ thể.
-   - *Yêu cầu tra cứu tờ khai/lô hàng sống:* Nêu rõ Agent chỉ hỗ trợ tra cứu văn bản luật, không kết nối hệ thống VNACCS/VCIS thực tế.
-   - *Yêu cầu tư vấn lách thuế:* Từ chối và trích dẫn quy định xử phạt vi phạm hành chính tương ứng.
-
-==================== MẪU LUỒNG XỬ LÝ (AGENT FEW-SHOT EXAMPLES) ====================
-
-[VÍ DỤ 1 - Gọi Tool thành công]:
-User: "Thời hạn nộp tờ khai hải quan hàng nhập khẩu là bao lâu?"
-Thought: Đây là câu hỏi về quy trình hải quan. Cần tra cứu dữ liệu luật.
-Action: search_legal_docs("thời hạn nộp tờ khai hải quan hàng nhập khẩu")
-Observation: [Trích Điều 25 Luật Hải quan 2014: Nộp trước ngày hàng đến cửa khẩu hoặc trong thời hạn 30 ngày kể từ ngày hàng đến...]
-Final Answer:
-Thời hạn nộp tờ khai hải quan đối với hàng hóa nhập khẩu được quy định như sau:
-- Tờ khai hải quan được nộp trước ngày hàng hóa đến cửa khẩu hoặc trong thời hạn 30 ngày kể từ ngày hàng hóa đến cửa khẩu [Theo Điểm a Khoản 1 Điều 25, Luật Hải quan 2014].
-
-📋 **Văn bản pháp luật tham chiếu:**
-1. Luật Hải quan 2014 (Điều 25)
-
----
-
-[VÍ DỤ 2 - Câu hỏi ngoài phạm vi, KHÔNG gọi Tool]:
-User: "Thủ tục xin cấp giấy phép lái xe ô tô gồm những gì?"
-Thought: Câu hỏi này thuộc lĩnh vực Giao thông đường bộ, nằm ngoài phạm vi XNK & Hải quan. Không cần gọi tool.
-Final Answer: 
-Tôi là trợ lý AI chuyên về lĩnh vực Hải quan và Xuất nhập khẩu Việt Nam. Rất tiếc, câu hỏi của bạn thuộc lĩnh vực Giao thông đường bộ nên tôi không có dữ liệu để hỗ trợ.
-
-======================================================================
+📋 **Văn bản tham chiếu:**
+1. Tên văn bản - Điều/Khoản
 """
 
 
@@ -229,6 +219,48 @@ class LocalRetriever:
 
         # store embedding dimension
         self.dim = self.model.get_sentence_embedding_dimension()
+
+    def update_parent_chunk_memory(self, parent_id: str, text: str, chapter: Optional[str] = None, article_ids: Optional[list] = None):
+        """Update a Parent Chunk in memory instantly for active retrieval sessions."""
+        if parent_id in self.parent_chunks:
+            self.parent_chunks[parent_id]["text"] = text
+            if chapter is not None:
+                self.parent_chunks[parent_id]["chapter"] = chapter
+            if article_ids is not None:
+                self.parent_chunks[parent_id]["article_ids"] = article_ids
+            return True
+        return False
+
+    def reload_parent_chunks(self):
+        """Reload parent_chunks.json from disk into memory."""
+        if PARENT_CHUNKS_META.exists():
+            with open(PARENT_CHUNKS_META, 'r', encoding='utf-8') as f:
+                parent_list = json.load(f)
+            self.parent_chunks = {p["parent_id"]: p for p in parent_list}
+            return len(self.parent_chunks)
+        return 0
+
+    def remove_source_from_memory(self, source: str):
+        """Remove all chunks from memory and metadata related to a deleted source."""
+        # Remove from parent_chunks
+        keys_to_delete = [k for k, v in self.parent_chunks.items() if v.get("source") == source]
+        for k in keys_to_delete:
+            del self.parent_chunks[k]
+        
+        if PARENT_CHUNKS_META.exists():
+            with open(PARENT_CHUNKS_META, 'r', encoding='utf-8') as f:
+                parent_list = json.load(f)
+            
+            parent_list = [p for p in parent_list if p.get("source") != source]
+            
+            with open(PARENT_CHUNKS_META, 'w', encoding='utf-8') as f:
+                json.dump(parent_list, f, ensure_ascii=False, indent=2)
+
+        if hasattr(self, 'chunks'):
+            self.chunks = [c for c in self.chunks if c.get("source") != source]
+            if CHUNKS_META.exists():
+                with open(CHUNKS_META, 'w', encoding='utf-8') as f:
+                    json.dump(self.chunks, f, ensure_ascii=False, indent=2)
 
     def embed_query(self, q: str):
         emb = self.model.encode([q], convert_to_numpy=True, normalize_embeddings=True).astype('float32')
@@ -362,10 +394,12 @@ class LocalRetriever:
         parents, children = self.retrieve_parents(query, top_k=top_k)
 
         # --- Grounded Answer Boundary Check ---
-        NO_ANSWER_THRESHOLD = 0.50
+        # Giảm NO_ANSWER_THRESHOLD từ 0.50 xuống 0.35 để cải thiện Recall
+        # (câu hỏi tổng quát thường có score thấp hơn nhưng vẫn có thể trả lời được)
+        NO_ANSWER_THRESHOLD = 0.35
         if not parents and not children:
             return (
-                "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này.",
+                "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này. Vui lòng thử đặt câu hỏi cụ thể hơn hoặc cung cấp mã HS/tên hàng hóa.",
                 [],
                 "local"
             )
@@ -379,7 +413,7 @@ class LocalRetriever:
             
         if best_score < NO_ANSWER_THRESHOLD:
             return (
-                "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này.",
+                "Tôi không tìm thấy thông tin đủ chính xác trong cơ sở dữ liệu pháp luật hiện tại để giải đáp câu hỏi này. Vui lòng thử hỏi cụ thể hơn, ví dụ: mã HS, tên hàng hóa, hoặc điều khoản cụ thể bạn muốn tra cứu.",
                 [],
                 "local"
             )
@@ -553,32 +587,32 @@ def _build_enriched_sources(retrieved):
 
 
 def _call_gemini_api(system_prompt, user_prompt):
-    """Gọi Gemini API với retry logic cho lỗi 429 (Rate Limit)."""
+    """Gọi Gemini API với retry logic và fallback nhanh nếu key không hợp lệ."""
     import time
-    if not GEMINI_API_KEY:
+    key_clean = (GEMINI_API_KEY or "").strip()
+    if not key_clean or key_clean in ("YOUR_API_KEY_HERE", "your_api_key_here", "None") or len(key_clean) < 20:
         return None
 
     payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
         "generationConfig": {
-            "temperature": 0.1,
+            "temperature": 0.2,
             "topP": 0.95,
             "maxOutputTokens": 2048,
-            "responseMimeType": "application/json",
         },
     }
     data = json.dumps(payload).encode("utf-8")
     last_error = None
 
-    for model_name in GEMINI_MODEL_CANDIDATES:
+    for model_name in GEMINI_MODEL_CANDIDATES[:2]:  # Test top 2 model candidates
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model_name}:generateContent?key={GEMINI_API_KEY}"
+            f"{model_name}:generateContent?key={key_clean}"
         )
 
         # Retry with exponential backoff for 429 errors
-        max_retries = 2
+        max_retries = 1
         for attempt in range(max_retries + 1):
             req = urllib.request.Request(
                 url,
@@ -587,27 +621,19 @@ def _call_gemini_api(system_prompt, user_prompt):
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(req, timeout=30) as resp:
+                with urllib.request.urlopen(req, timeout=8) as resp:
                     raw = resp.read().decode("utf-8")
                 return json.loads(raw)
             except urllib.error.HTTPError as exc:
                 last_error = exc
-                if exc.code == 429:
-                    if attempt < max_retries:
-                        time.sleep(2 ** attempt)
-                        continue
-                    else:
-                        break
-                elif exc.code == 404:
-                    break  # Try next model
-                else:
-                    raise
+                if exc.code == 429 and attempt < max_retries:
+                    time.sleep(1)
+                    continue
+                break  # Try next model or fallback
             except Exception as exc:
                 last_error = exc
                 break
 
-    if last_error:
-        raise last_error
     return None
 
 
@@ -621,30 +647,37 @@ def _refine_with_gemini(query, parents):
 
     user_prompt = f"""Câu hỏi của người dùng: {query}
 
-Kết quả từ search_legal_docs (Ngữ cảnh Parent-Document):
+Ngữ cảnh pháp luật liên quan:
 {context_text}
 
-Hãy thực hiện 4 bước suy luận Agent theo quy trình đã định, sau đó tổng hợp câu trả lời.
-Trả về định dạng JSON thuần túy (không có block markdown ```json):
-{{
-    "answer": "câu trả lời đầy đủ, có format bullet points, trích dẫn Điều/Khoản (sử dụng \\n cho xuống dòng)"
-}}
-"""
+Dựa vào ngữ cảnh pháp luật trên, hãy trả lời câu hỏi theo đúng cấu trúc đã quy định (Tóm tắt → Quy định chi tiết → Lưu ý → Văn bản tham chiếu). Chỉ dùng thông tin có trong ngữ cảnh."""
+
     try:
         data = _call_gemini_api(AGENT_SYSTEM_PROMPT, user_prompt)
         if data and "candidates" in data and len(data["candidates"]) > 0:
             content = data["candidates"][0]["content"]["parts"][0]["text"]
-            # Remove markdown backticks if Gemini accidentally adds them
+            # Remove markdown backticks if Gemini accidentally wraps in code block
             content = re.sub(r'```json\s*', '', content)
             content = re.sub(r'```\s*', '', content)
+            content = content.strip()
             
-            parsed = json.loads(content)
-            enriched_sources = _build_enriched_sources_from_parents(parents)
-            return {
-                "answer": parsed.get("answer", ""),
-                "sources": enriched_sources
-            }
+            # Try parsing as JSON first (backward compatible)
+            answer_text = ""
+            try:
+                parsed = json.loads(content)
+                answer_text = parsed.get("answer", "")
+            except (json.JSONDecodeError, ValueError):
+                # Gemini returned plain text — use directly
+                answer_text = content
+            
+            if answer_text:
+                enriched_sources = _build_enriched_sources_from_parents(parents)
+                return {
+                    "answer": answer_text,
+                    "sources": enriched_sources
+                }
     except Exception as e:
+        safe_print(f"Gemini Refine Error: {e}")
         print(f"Gemini API Error: {e}")
         pass
     

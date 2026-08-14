@@ -67,16 +67,64 @@ else:
 print("Loading sentence-transformers model: ", MODEL_NAME)
 from sentence_transformers import SentenceTransformer
 import numpy as np
+import sqlite3
+import hashlib
 
-model = SentenceTransformer(MODEL_NAME)
-# Encode in batches
-embs_list = []
-for i in range(0, len(texts), BATCH_SIZE):
-    batch = texts[i : i + BATCH_SIZE]
-    emb = model.encode(batch, show_progress_bar=True, convert_to_numpy=True, normalize_embeddings=True)
-    embs_list.append(emb)
-embeddings = np.vstack(embs_list).astype("float32")
-print("Embeddings computed. shape=", embeddings.shape)
+# Initialize Cache DB
+CACHE_DB_PATH = INDEX_DIR / "embeddings_cache.db"
+conn = sqlite3.connect(str(CACHE_DB_PATH))
+conn.execute("CREATE TABLE IF NOT EXISTS cache (text_hash TEXT PRIMARY KEY, embedding BLOB)")
+conn.commit()
+
+def hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+# Check cache for existing embeddings
+print("Checking embedding cache...")
+cursor = conn.cursor()
+text_hashes = [hash_text(t) for t in texts]
+cached_embeddings = {}
+new_texts_with_indices = []
+
+for i, h in enumerate(text_hashes):
+    cursor.execute("SELECT embedding FROM cache WHERE text_hash=?", (h,))
+    row = cursor.fetchone()
+    if row:
+        cached_embeddings[i] = np.frombuffer(row[0], dtype="float32")
+    else:
+        new_texts_with_indices.append((i, texts[i], h))
+
+print(f"Found {len(cached_embeddings)} embeddings in cache. Need to compute {len(new_texts_with_indices)} new embeddings.")
+
+if new_texts_with_indices:
+    model = SentenceTransformer(MODEL_NAME)
+    new_indices = [item[0] for item in new_texts_with_indices]
+    new_texts = [item[1] for item in new_texts_with_indices]
+    new_hashes = [item[2] for item in new_texts_with_indices]
+    
+    new_embs_list = []
+    for i in range(0, len(new_texts), BATCH_SIZE):
+        batch = new_texts[i : i + BATCH_SIZE]
+        emb = model.encode(batch, show_progress_bar=True, convert_to_numpy=True, normalize_embeddings=True)
+        new_embs_list.append(emb)
+    
+    new_embeddings = np.vstack(new_embs_list).astype("float32")
+    
+    # Save to cache
+    for j, (h, emb) in enumerate(zip(new_hashes, new_embeddings)):
+        cursor.execute("INSERT OR REPLACE INTO cache (text_hash, embedding) VALUES (?, ?)", (h, emb.tobytes()))
+    conn.commit()
+    
+    # Store in dict
+    for j, global_idx in enumerate(new_indices):
+        cached_embeddings[global_idx] = new_embeddings[j]
+
+conn.close()
+
+# Reconstruct full ordered embeddings array
+ordered_embs = [cached_embeddings[i] for i in range(len(texts))]
+embeddings = np.vstack(ordered_embs).astype("float32")
+print("Embeddings ready. shape=", embeddings.shape)
 
 # Try FAISS first
 use_faiss = False

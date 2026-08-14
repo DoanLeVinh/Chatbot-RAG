@@ -13,89 +13,54 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Initialize Gemini AI Client
-  const getAiClient = () => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return null;
-    return new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-  };
 
-  // API Route: AI Legal Consultation
-  app.post("/api/chat", async (req, res) => {
+
+  // Proxy ALL /api/* routes to Python FastAPI Backend (RAG + Gemini)
+  // This ensures /api/chat goes through the full RAG pipeline (not a Node.js hardcode)
+  app.use(["/api/admin", "/api/auth", "/api/sessions", "/api/export", "/api/query", "/api/chat", "/api/upload", "/api/settings", "/api/citations"], async (req: any, res: any) => {
     try {
-      const { prompt, history } = req.body;
-      const ai = getAiClient();
-
-      if (!ai) {
-        // Fallback response when GEMINI_API_KEY is not set
-        return res.json({
-          reply: `Cảm ơn bạn đã hỏi về: "${prompt}".\n\nTheo quy định pháp luật Hải quan Việt Nam hiện hành:\n- Vui lòng cung cấp thêm mã HS (Harmonized System 6-8 chữ số) hoặc tên thương mại chi tiết của mặt hàng.\n- Các văn bản pháp lý chính bao gồm: Luật Hải quan 2014, Nghị định 08/2015/NĐ-CP, Nghị định 59/2018/NĐ-CP, và Thông tư 38/2015/TT-BTC.`,
-          hsCode: "8542.31",
-          taxes: [
-            { label: "Thuế nhập khẩu ưu đãi (MFN / VJEPA)", rate: "0%", citationCode: "NĐ 119/2022/NĐ-CP" },
-            { label: "Thuế Giá trị gia tăng (VAT)", rate: "10%" }
-          ],
-          citations: [
-            {
-              id: "nd-119-2022",
-              code: "NĐ 119/2022/NĐ-CP",
-              title: "Nghị định 119/2022/NĐ-CP",
-              status: "active",
-              statusLabel: "Đang có hiệu lực",
-              enactmentDate: "30/12/2022",
-              summary: "Biểu thuế nhập khẩu ưu đãi đặc biệt của Việt Nam thực hiện Hiệp định AJCEP."
-            }
-          ]
-        });
+      const url = `http://127.0.0.1:8000${req.originalUrl}`;
+      const isMultipart = req.headers['content-type']?.includes('multipart/form-data');
+      
+      const headers: any = {};
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (!['host', 'content-length', 'connection'].includes(key.toLowerCase()) && value) {
+          headers[key] = value;
+        }
+      }
+      if (!headers['content-type'] && !isMultipart) {
+        headers['content-type'] = 'application/json';
       }
 
-      const systemInstruction = `Bạn là Trợ lý Pháp lý Hải quan LogiChat chuyên nghiệp, chính xác về luật Xuất Nhập Khẩu và Hải quan Việt Nam.
-Hãy trả lời câu hỏi bằng tiếng Việt chuyên môn, lịch sự, rõ ràng.
-Cung cấp phân tích thuế suất (Nhập khẩu, VAT, C/O), danh mục kiểm tra chuyên ngành, và trích dẫn các Nghị định/Thông tư chính xác của Bộ Tài chính, Bộ Công Thương, Bộ Y tế, Bộ TT&TT nếu có.`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3.6-flash",
-        contents: prompt,
-        config: {
-          systemInstruction,
-          temperature: 0.2,
-        },
-      });
-
-      const replyText = response.text || "Không có phản hồi từ mô hình AI.";
-      
-      return res.json({
-        reply: replyText,
-      });
-    } catch (error: any) {
-      console.error("Error in /api/chat:", error);
-      res.status(500).json({ error: error.message || "Lỗi xử lý hệ thống AI" });
-    }
-  });
-
-  // Proxy /api/admin to Python Backend
-  app.use("/api/admin", async (req, res) => {
-    try {
-      const url = `http://127.0.0.1:8000/api/admin${req.url}`;
-      const response = await fetch(url, {
+      let fetchOptions: any = {
         method: req.method,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body)
-      });
-      const data = await response.json();
-      res.status(response.status).json(data);
+        headers,
+      };
+
+      if (!['GET', 'HEAD'].includes(req.method)) {
+        if (isMultipart) {
+          fetchOptions.duplex = 'half';
+          fetchOptions.body = req;
+        } else {
+          fetchOptions.body = JSON.stringify(req.body);
+        }
+      }
+
+      const response = await fetch(url, fetchOptions);
+      const contentType = response.headers.get('content-type') || '';
+      
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        res.status(response.status).json(data);
+      } else {
+        const buffer = await response.arrayBuffer();
+        res.status(response.status)
+          .set('Content-Type', contentType)
+          .send(Buffer.from(buffer));
+      }
     } catch (error: any) {
       console.error("Proxy error to backend:", error);
-      res.status(502).json({ error: "Backend không phản hồi" });
+      res.status(502).json({ error: "Backend không phản hồi. Vui lòng kiểm tra server Python." });
     }
   });
 

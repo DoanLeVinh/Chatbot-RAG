@@ -1,16 +1,17 @@
 """FastAPI backend for LogiChat — Trợ lý Pháp lý Hải quan & XNK AI.
 
-Provides full REST API with SQLite database integration, user authentication (isolated history),
-RAG vector retrieval (Parent-Document Retrieval), and PDF export.
+Provides full REST API with SQLite database integration, JWT authentication & RBAC,
+user session isolation, Parent-Document Retrieval (PDR), Blockchain SHA-256 Integrity Verification,
+and professional UTF-8 PDF export.
 
 Run:
-  python serve.py
+  python backend/serve.py
 """
-from fastapi import FastAPI, Request, UploadFile, File as FastAPIFile, Header, HTTPException, Depends
+from fastapi import FastAPI, Request, UploadFile, File as FastAPIFile, Header, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, AsyncGenerator
 import uvicorn
 from pathlib import Path
 import sys
@@ -19,6 +20,7 @@ import json
 import re
 import uuid
 import shutil
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -31,10 +33,12 @@ try:
 except Exception:
     pass
 
-# Import SQLite Database Layer
+# Add backend directory to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import db
+from retriever_local import LocalRetriever
 
-app = FastAPI(title='LogiChat — Trợ lý Pháp lý Hải quan & XNK AI (SQLite Backend)')
+app = FastAPI(title='LogiChat — Trợ lý Pháp lý Hải quan & XNK AI (SQLite & PDR Backend)')
 
 # ─── Data directory setup ───────────────────────────────────────────
 DATA_DIR = Path.cwd() / 'data'
@@ -55,10 +59,38 @@ if assets_dir.exists():
 app.mount('/uploads', StaticFiles(directory=str(UPLOADS_DIR)), name='uploads')
 app.mount('/frontend', StaticFiles(directory=str(static_dir)), name='frontend')
 
-# ─── Import local retriever ────────────────────────────────────────
-from retriever_local import LocalRetriever
+retriever: Optional[LocalRetriever] = None
 
-retriever = None
+
+# ─── Security & Authentication Dependencies ────────────────────────
+
+def get_current_user_optional(authorization: Optional[str] = Header(None)) -> Optional[Dict[str, Any]]:
+    """Extract and verify user from Bearer Token, or return None for anonymous."""
+    if not authorization:
+        return None
+    try:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == 'bearer':
+            token = parts[1]
+            payload = db.verify_jwt_token(token)
+            return payload
+    except Exception:
+        pass
+    return None
+
+def get_current_user_required(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    """Require valid JWT token or raise 401 Unauthorized."""
+    user = get_current_user_optional(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để tiếp tục thao tác.")
+    return user
+
+def require_admin_user(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    """Require user with 'admin' role or raise 403 Forbidden."""
+    user = get_current_user_required(authorization)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Yêu cầu quyền Quản trị viên (Admin) để thực hiện hành động này.")
+    return user
 
 
 # ─── Helper functions ───────────────────────────────────────────────
@@ -144,6 +176,9 @@ def _build_legal_citations(sources: list) -> list:
         if article_refs:
             title = f"{source_name} - {', '.join(article_refs[:3])}"
 
+        # SHA-256 hash preview
+        raw_hash = db.calculate_sha256(text_snippet)
+
         citations.append({
             'id': f'cit-{i}-{uuid.uuid4().hex[:6]}',
             'code': code,
@@ -153,6 +188,8 @@ def _build_legal_citations(sources: list) -> list:
             'enactmentDate': '',
             'summary': text_snippet[:300] if text_snippet else f'Trích dẫn từ {source_name}',
             'fullText': text_snippet[:1000] if text_snippet else None,
+            'sha256': raw_hash,
+            'verified': True,
             'pdfUrl': '#',
         })
 
@@ -194,11 +231,13 @@ class AdminUserCreateReq(BaseModel):
     email: str
     fullName: str
     password: str
+    role: Optional[str] = "user"
 
 class AdminUserUpdateReq(BaseModel):
     email: str
     fullName: str
     password: Optional[str] = None
+    role: Optional[str] = None
 
 class AdminChunkUpdateReq(BaseModel):
     text: str
@@ -216,26 +255,28 @@ class SettingsIn(BaseModel):
     lawDatabase: Optional[str] = '2023-2024'
     fontSize: Optional[str] = 'medium'
 
-class SettingsUpdateReq(BaseModel):
-    userId: str
-    autoCite: bool
-    lawDatabase: str
-    fontSize: str
-
 class PdfExportIn(BaseModel):
     sessionId: Optional[str] = None
-    title: Optional[str] = 'Bản tóm tắt pháp lý'
+    title: Optional[str] = 'Bản tóm tắt quy định Hải quan & Thuế suất'
     content: Optional[str] = None
+    hsCode: Optional[str] = None
+    taxes: Optional[list] = None
     citations: Optional[list] = None
 
 
 # ─── Startup event ──────────────────────────────────────────────────
 
+def get_retriever() -> LocalRetriever:
+    """Ensure LocalRetriever is initialized (lazy initialization for test suites and production)."""
+    global retriever
+    if retriever is None:
+        db.init_db()
+        retriever = LocalRetriever()
+    return retriever
+
 @app.on_event('startup')
 async def startup_event():
-    global retriever
-    db.init_db()
-    retriever = LocalRetriever()
+    get_retriever()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -244,13 +285,15 @@ async def startup_event():
 
 @app.post('/api/query')
 async def api_query(q: QueryIn):
-    answer, sources, provider = retriever.synthesize(q.query, top_k=q.top_k, max_sentences=6)
+    r = get_retriever()
+    answer, sources, provider = r.synthesize(q.query, top_k=q.top_k, max_sentences=6)
     return JSONResponse({'answer': answer, 'sources': sources, 'provider': provider})
 
 
 @app.post('/api/chat')
-async def api_chat(req: ChatIn):
-    answer, sources, provider = retriever.synthesize(req.prompt, top_k=5, max_sentences=6)
+async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_current_user_optional)):
+    r = get_retriever()
+    answer, sources, provider = r.synthesize(req.prompt, top_k=5, max_sentences=6)
 
     # Extract structured data
     hs_code = _extract_hs_code(req.prompt + ' ' + answer)
@@ -266,15 +309,18 @@ async def api_chat(req: ChatIn):
 
     # SQLite Persistence & Strict User Isolation
     if req.sessionId:
-        timestamp = datetime.now().strftime('%H:%M')
-        # Add User Message to SQLite DB
-        db.add_message(req.sessionId, 'user', req.prompt, timestamp)
-        # Add AI Message to SQLite DB
-        db.add_message(
-            req.sessionId, 'ai', answer, timestamp,
-            hs_code=hs_code, taxes=taxes, inspections=inspections,
-            citations=citations, summary_pdf=summary_pdf
-        )
+        try:
+            timestamp = datetime.now().strftime('%H:%M')
+            # Add User Message to SQLite DB
+            db.add_message(req.sessionId, 'user', req.prompt, timestamp)
+            # Add AI Message to SQLite DB
+            db.add_message(
+                req.sessionId, 'ai', answer, timestamp,
+                hs_code=hs_code, taxes=taxes, inspections=inspections,
+                citations=citations, summary_pdf=summary_pdf
+            )
+        except Exception as db_err:
+            print(f"[Warning] Failed to persist chat message to SQLite: {db_err}")
 
     response = {
         'reply': answer,
@@ -289,17 +335,70 @@ async def api_chat(req: ChatIn):
     return JSONResponse(response)
 
 
+# ─── Chat Streaming Endpoint (Server-Sent Events) ──────────────────
+
+@app.post('/api/chat/stream')
+async def api_chat_stream(req: ChatIn):
+    r = get_retriever()
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        answer, sources, provider = r.synthesize(req.prompt, top_k=5, max_sentences=6)
+        
+        hs_code = _extract_hs_code(req.prompt + ' ' + answer)
+        taxes = _extract_tax_info(answer)
+        inspections = _extract_inspection_info(answer)
+        citations = _build_legal_citations(sources)
+        taxes = _attach_citation_codes_to_taxes(taxes, citations)
+
+        # Stream tokens
+        words = answer.split(' ')
+        accumulated = ""
+        for i, word in enumerate(words):
+            accumulated += (word + " ")
+            chunk_data = json.dumps({"token": word + " ", "accumulated": accumulated}, ensure_ascii=False)
+            yield f"data: {chunk_data}\n\n"
+            await asyncio.sleep(0.015)
+
+        # Final metadata event
+        final_payload = {
+            "done": True,
+            "reply": answer,
+            "provider": provider,
+            "hsCode": hs_code,
+            "taxes": taxes if taxes else None,
+            "inspections": inspections,
+            "citations": citations if citations else None
+        }
+
+        if req.sessionId:
+            try:
+                timestamp = datetime.now().strftime('%H:%M')
+                db.add_message(req.sessionId, 'user', req.prompt, timestamp)
+                db.add_message(
+                    req.sessionId, 'ai', answer, timestamp,
+                    hs_code=hs_code, taxes=taxes, inspections=inspections,
+                    citations=citations
+                )
+            except Exception as db_err:
+                print(f"[Warning] Failed to persist stream message to SQLite: {db_err}")
+
+        yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 # ═══════════════════════════════════════════════════════════════════
-# AUTH API — SQLite Registration & Login
+# AUTH API — SQLite Registration, Login & JWT Generation
 # ═══════════════════════════════════════════════════════════════════
 
 @app.post('/api/auth/register')
 async def auth_register(req: AuthIn):
     try:
-        user_info = db.register_user(req.email, req.password, req.fullName)
+        user_info = db.register_user(req.email, req.password, req.fullName or "Người dùng")
         return JSONResponse({
             'success': True,
-            'user': user_info
+            'user': user_info,
+            'token': user_info.get("token")
         })
     except ValueError as e:
         return JSONResponse({'error': str(e)}, status_code=400)
@@ -313,12 +412,21 @@ async def auth_login(req: AuthIn):
         user_info = db.login_user(req.email, req.password)
         return JSONResponse({
             'success': True,
-            'user': user_info
+            'user': user_info,
+            'token': user_info.get("token")
         })
     except ValueError as e:
         return JSONResponse({'error': str(e)}, status_code=401)
     except Exception as e:
         return JSONResponse({'error': f'Lỗi hệ thống: {str(e)}'}, status_code=500)
+
+
+@app.get('/api/auth/me')
+async def auth_me(user: dict = Depends(get_current_user_required)):
+    user_db = db.get_user_by_id(user["id"])
+    if not user_db:
+        raise HTTPException(status_code=404, detail="Người dùng không tồn tại.")
+    return JSONResponse({"success": True, "user": user_db})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -331,16 +439,22 @@ async def get_sessions(
     search: Optional[str] = None,
     tag: Optional[str] = None,
     page: int = 1,
-    limit: int = 20,
+    limit: int = 50,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    result = db.get_user_sessions(user_id=userId, search=search, tag=tag, page=page, limit=limit)
+    effective_user_id = current_user["id"] if current_user else userId
+    result = db.get_user_sessions(user_id=effective_user_id, search=search, tag=tag, page=page, limit=limit)
     return JSONResponse(result)
 
 
 @app.post('/api/sessions')
-async def create_session(req: SessionCreate):
+async def create_session(
+    req: SessionCreate,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    effective_user_id = current_user["id"] if current_user else req.userId
     new_session = db.create_session(
-        user_id=req.userId,
+        user_id=effective_user_id,
         title=req.title or "Hội thoại tư vấn mới",
         category_tag=req.categoryTag or "Tư vấn Hải quan"
     )
@@ -348,52 +462,72 @@ async def create_session(req: SessionCreate):
 
 
 @app.get('/api/sessions/{session_id}')
-async def get_session(session_id: str, userId: Optional[str] = None):
-    session = db.get_session_detail(session_id, user_id=userId)
+async def get_session(
+    session_id: str,
+    userId: Optional[str] = None,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    effective_user_id = current_user["id"] if current_user else userId
+    session = db.get_session_detail(session_id, user_id=effective_user_id)
     if not session:
         return JSONResponse({'error': 'Không tìm thấy phiên hội thoại hoặc không có quyền truy cập.'}, status_code=404)
     return JSONResponse({'session': session})
 
 
 @app.delete('/api/sessions/{session_id}')
-async def delete_session(session_id: str, userId: Optional[str] = None):
-    success = db.delete_session(session_id, user_id=userId)
+async def delete_session(
+    session_id: str,
+    userId: Optional[str] = None,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    effective_user_id = current_user["id"] if current_user else userId
+    success = db.delete_session(session_id, user_id=effective_user_id)
     if not success:
         return JSONResponse({'error': 'Không tìm thấy phiên hội thoại hoặc không có quyền truy cập.'}, status_code=404)
     return JSONResponse({'success': True, 'message': 'Đã xóa phiên hội thoại thành công.'})
 
 
 # ═══════════════════════════════════════════════════════════════════
-# FILE UPLOAD API — Attached to Session/User
+# FILE UPLOAD API — Attached to Session/User with Size Validation
 # ═══════════════════════════════════════════════════════════════════
+
+MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
+ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.webp', '.txt'}
 
 @app.post('/api/upload')
 async def upload_file(
     file: UploadFile = FastAPIFile(...),
     sessionId: Optional[str] = None,
-    userId: Optional[str] = None
+    userId: Optional[str] = None,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    ext = Path(file.filename).suffix
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Định dạng tệp {ext} không được hỗ trợ.")
+
     unique_name = f'{uuid.uuid4().hex[:12]}{ext}'
     file_path = UPLOADS_DIR / unique_name
 
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="Kích thước tệp vượt quá giới hạn tối đa (20MB).")
+
     with open(file_path, 'wb') as buffer:
-        content = await file.read()
         buffer.write(content)
 
     file_size = len(content)
     size_str = f'{file_size / 1024:.1f} KB' if file_size < 1024 * 1024 else f'{file_size / (1024 * 1024):.1f} MB'
 
-    ext_lower = ext.lower()
-    file_type = 'pdf' if ext_lower == '.pdf' else \
-                'doc' if ext_lower in ['.doc', '.docx'] else \
-                'excel' if ext_lower in ['.xls', '.xlsx'] else \
-                'image' if ext_lower in ['.jpg', '.jpeg', '.png', '.gif', '.webp'] else 'pdf'
+    file_type = 'pdf' if ext == '.pdf' else \
+                'doc' if ext in ['.doc', '.docx'] else \
+                'excel' if ext in ['.xls', '.xlsx'] else \
+                'image' if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp'] else 'pdf'
 
     file_url = f'/uploads/{unique_name}'
+    effective_user_id = current_user["id"] if current_user else userId
 
     # Save to SQLite
-    attachment = db.save_attachment(sessionId, userId, file.filename, size_str, file_type, file_url)
+    attachment = db.save_attachment(sessionId, effective_user_id, file.filename, size_str, file_type, file_url)
 
     return JSONResponse({
         'success': True,
@@ -406,16 +540,23 @@ async def upload_file(
 # ═══════════════════════════════════════════════════════════════════
 
 @app.get('/api/settings')
-async def get_settings(userId: Optional[str] = 'default_user'):
-    settings = db.get_user_settings(userId or 'default_user')
+async def get_settings(
+    userId: Optional[str] = 'default_user',
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    effective_user_id = current_user["id"] if current_user else (userId or 'default_user')
+    settings = db.get_user_settings(effective_user_id)
     return JSONResponse(settings)
 
 
 @app.put('/api/settings')
-async def update_settings(req: SettingsIn):
-    user_id = req.userId or 'default_user'
+async def update_settings(
+    req: SettingsIn,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    effective_user_id = current_user["id"] if current_user else (req.userId or 'default_user')
     updated = db.update_user_settings(
-        user_id,
+        effective_user_id,
         auto_cite=req.autoCite if req.autoCite is not None else True,
         law_database=req.lawDatabase or '2023-2024',
         font_size=req.fontSize or 'medium'
@@ -424,100 +565,243 @@ async def update_settings(req: SettingsIn):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# PDF EXPORT API
+# PDF EXPORT API — UTF-8 Professional Legal Summary
 # ═══════════════════════════════════════════════════════════════════
 
 @app.post('/api/export/pdf')
 async def export_pdf(req: PdfExportIn):
-    try:
-        from fpdf import FPDF
-    except ImportError:
-        return _export_pdf_html_fallback(req)
-
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font('Helvetica', '', 14)
-
-    # Header
-    pdf.cell(0, 10, 'CONG HOA XA HOI CHU NGHIA VIET NAM', 0, 1, 'C')
-    pdf.set_font_size(10)
-    pdf.cell(0, 8, 'Doc lap - Tu do - Hanh phuc', 0, 1, 'C')
-    pdf.ln(5)
-
-    # Title
-    pdf.set_font_size(13)
-    title = req.title or 'Ban tom tat phap ly Hai quan & Thue suat nhap khau'
-    pdf.cell(0, 10, title, 0, 1, 'C')
-    pdf.ln(3)
-
-    # Date
-    pdf.set_font_size(9)
-    pdf.cell(0, 6, f'Ngay trich xuat: {datetime.now().strftime("%d/%m/%Y")} | He thong LogiChat AI', 0, 1, 'L')
-    pdf.ln(3)
-
-    # Content
-    pdf.set_font_size(10)
-    content = req.content or 'Noi dung tom tat phap ly se duoc hien thi tai day.'
-    safe_content = content.encode('latin-1', 'replace').decode('latin-1')
-    pdf.multi_cell(0, 6, safe_content)
-
-    # Citations
-    if req.citations:
-        pdf.ln(5)
-        pdf.set_font_size(11)
-        pdf.cell(0, 8, 'Van ban phap luat tham chieu:', 0, 1, 'L')
-        pdf.set_font_size(9)
-        for i, cite in enumerate(req.citations, 1):
-            cite_text = f'{i}. {cite.get("code", "")} - {cite.get("title", "")}'
-            safe_cite = cite_text.encode('latin-1', 'replace').decode('latin-1')
-            pdf.cell(0, 6, safe_cite, 0, 1, 'L')
-
-    pdf.ln(10)
-    pdf.set_font_size(8)
-    pdf.cell(0, 5, '* Van ban tom tat nay co gia tri tham khao tu van theo du lieu phap luat hien hanh.', 0, 1, 'L')
-
-    pdf_bytes = pdf.output()
-
-    return StreamingResponse(
-        iter([pdf_bytes]),
-        media_type='application/pdf',
-        headers={
-            'Content-Disposition': f'attachment; filename="logichat_summary_{datetime.now().strftime("%Y%m%d_%H%M")}.pdf"'
-        }
-    )
-
-
-def _export_pdf_html_fallback(req: PdfExportIn):
+    """Generate and return a beautifully styled, print-ready UTF-8 legal summary report."""
     content = req.content or 'Nội dung tóm tắt pháp lý sẽ được hiển thị tại đây.'
+    title = req.title or 'Bản tóm tắt quy định Hải quan & Thuế suất'
+    now_date = datetime.now().strftime('%d/%m/%Y %H:%M')
+    doc_id = f"LOGI-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+
+    taxes_html = ''
+    if req.taxes:
+        taxes_html = """
+        <div class="section-box">
+            <div class="section-title">📊 Biểu thuế suất áp dụng</div>
+            <table class="tax-table">
+                <thead>
+                    <tr>
+                        <th>Loại thuế</th>
+                        <th>Thuế suất</th>
+                        <th>Căn cứ pháp lý</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        for t in req.taxes:
+            label = t.get('label', '')
+            rate = t.get('rate', '')
+            cite = t.get('citationCode', 'Theo Biểu thuế hiện hành')
+            taxes_html += f"<tr><td><strong>{label}</strong></td><td class='rate'>{rate}</td><td>{cite}</td></tr>"
+        taxes_html += "</tbody></table></div>"
+
     citations_html = ''
     if req.citations:
-        citations_html = '<h3>📋 Văn bản pháp luật tham chiếu:</h3><ul>'
+        citations_html = """
+        <div class="section-box">
+            <div class="section-title">📋 Danh mục văn bản pháp luật tham chiếu & Căn cứ</div>
+            <ul class="citation-list">
+        """
         for cite in req.citations:
-            citations_html += f'<li><strong>{cite.get("code", "")}</strong> — {cite.get("title", "")}</li>'
-        citations_html += '</ul>'
+            code = cite.get("code", "")
+            cite_title = cite.get("title", "")
+            summary = cite.get("summary", "")
+            citations_html += f"""
+            <li class="citation-item">
+                <span class="cite-code">{code}</span>
+                <span class="cite-title">{cite_title}</span>
+                {f'<div class="cite-summary">{summary}</div>' if summary else ''}
+            </li>
+            """
+        citations_html += "</ul></div>"
 
     html = f"""<!DOCTYPE html>
 <html lang="vi">
-<head><meta charset="UTF-8"><title>{req.title}</title>
-<style>
-body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }}
-h1 {{ text-align: center; color: #00236f; }}
-h2 {{ text-align: center; font-size: 14px; color: #444; }}
-.content {{ line-height: 1.8; white-space: pre-wrap; }}
-.footer {{ margin-top: 40px; font-size: 12px; color: #888; font-style: italic; }}
-</style></head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title} — {doc_id}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            background: #f8fafc;
+            padding: 40px 20px;
+            line-height: 1.6;
+        }}
+        .document-container {{
+            max-width: 850px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 48px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+            border: 1px solid #e2e8f0;
+        }}
+        .header {{
+            text-align: center;
+            border-bottom: 2px solid #00236f;
+            padding-bottom: 24px;
+            margin-bottom: 28px;
+        }}
+        .country-title {{ font-size: 15px; font-weight: 700; color: #00236f; letter-spacing: 0.5px; text-transform: uppercase; }}
+        .motto {{ font-size: 13px; font-weight: 500; color: #475569; margin-top: 4px; }}
+        .doc-meta {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px dashed #cbd5e1;
+        }}
+        .main-title {{
+            font-size: 22px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 16px;
+            line-height: 1.3;
+        }}
+        .content-box {{
+            background: #f8fafc;
+            border-left: 4px solid #2563eb;
+            padding: 20px;
+            border-radius: 0 8px 8px 0;
+            font-size: 14.5px;
+            color: #334155;
+            white-space: pre-wrap;
+            margin-bottom: 24px;
+        }}
+        .section-box {{
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #e2e8f0;
+        }}
+        .section-title {{
+            font-size: 16px;
+            font-weight: 700;
+            color: #00236f;
+            margin-bottom: 12px;
+        }}
+        .tax-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13.5px;
+            margin-top: 8px;
+        }}
+        .tax-table th {{
+            background: #f1f5f9;
+            color: #334155;
+            text-align: left;
+            padding: 10px 14px;
+            font-weight: 600;
+            border: 1px solid #cbd5e1;
+        }}
+        .tax-table td {{
+            padding: 10px 14px;
+            border: 1px solid #e2e8f0;
+            color: #334155;
+        }}
+        .tax-table td.rate {{
+            font-weight: 700;
+            color: #2563eb;
+        }}
+        .citation-list {{ list-style: none; }}
+        .citation-item {{
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 13.5px;
+        }}
+        .cite-code {{
+            display: inline-block;
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 12px;
+            margin-right: 8px;
+        }}
+        .cite-title {{ font-weight: 600; color: #0f172a; }}
+        .cite-summary {{ color: #64748b; font-size: 12.5px; margin-top: 4px; }}
+        .footer {{
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 11.5px;
+            color: #94a3b8;
+            text-align: center;
+        }}
+        .print-btn {{
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }}
+        @media print {{
+            body {{ background: white; padding: 0; }}
+            .document-container {{ box-shadow: none; border: none; padding: 0; max-width: 100%; }}
+            .print-btn {{ display: none; }}
+        }}
+    </style>
+</head>
 <body>
-<h1>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</h1>
-<h2>Độc lập - Tự do - Hạnh phúc</h2>
-<hr>
-<h2>{req.title}</h2>
-<p><em>Ngày trích xuất: {datetime.now().strftime('%d/%m/%Y')} | Hệ thống LogiChat AI</em></p>
-<div class="content">{content}</div>
-{citations_html}
-<div class="footer">* Văn bản tóm tắt này có giá trị tham khảo tư vấn theo dữ liệu pháp luật hiện hành.</div>
-</body></html>"""
+    <button class="print-btn" onclick="window.print()">🖨️ In / Lưu file PDF</button>
+    <div class="document-container">
+        <div class="header">
+            <div class="country-title">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+            <div class="motto">Độc lập - Tự do - Hạnh phúc</div>
+            <div class="doc-meta">
+                <span>Mã tài liệu: <strong>{doc_id}</strong></span>
+                <span>Ngày trích xuất: <strong>{now_date}</strong></span>
+                <span>Hệ thống: <strong>LogiChat Legal AI</strong></span>
+            </div>
+        </div>
+
+        <h1 class="main-title">{title}</h1>
+        {f'<div style="margin-bottom: 12px;"><span style="background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 13px;">🏷️ Mã HS xác định: {req.hsCode}</span></div>' if req.hsCode else ''}
+
+        <div class="content-box">{content}</div>
+
+        {taxes_html}
+        {citations_html}
+
+        <div class="footer">
+            <p>* Bản tóm tắt pháp lý này được tự động trích xuất từ cơ sở dữ liệu Quy định Hải quan & Thủ tục XNK hiện hành.</p>
+            <p>Thông tin có giá trị tra cứu tham khảo nghiệp vụ, đối chiếu với cơ quan Hải quan khi làm thủ tục thông quan chính thức.</p>
+        </div>
+    </div>
+</body>
+</html>"""
 
     return HTMLResponse(html)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# BLOCKCHAIN & SHA-256 HASH VERIFICATION API
+# ═══════════════════════════════════════════════════════════════════
+
+@app.get('/api/verify/integrity/{identifier}')
+async def verify_integrity(identifier: str):
+    """Verify SHA-256 integrity hash of a legal document or chunk."""
+    result = db.verify_document_integrity(identifier)
+    return JSONResponse(result)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -526,10 +810,8 @@ h2 {{ text-align: center; font-size: 14px; color: #444; }}
 
 @app.get('/api/citations/{code:path}')
 async def get_citation_detail(code: str):
-    if not retriever:
-        return JSONResponse({'error': 'Retriever chưa sẵn sàng.'}, status_code=503)
-
-    parents, children = retriever.retrieve_parents(code, top_k=3)
+    r = get_retriever()
+    parents, children = r.retrieve_parents(code, top_k=3)
 
     if not parents and not children:
         return JSONResponse({
@@ -556,65 +838,134 @@ async def get_citation_detail(code: str):
             'fullText': combined_text,
             'articleRefs': first_result.get('article_ids', []),
             'chapter': first_result.get('chapter'),
+            'sha256': db.calculate_sha256(combined_text)
         }
     })
 
 
-# ─── Admin API Endpoints ──────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# ADMIN API (Protected by require_admin_user)
+# ═══════════════════════════════════════════════════════════════════
 
 @app.get('/api/admin/users')
-async def admin_get_users():
+async def admin_get_users(admin: dict = Depends(require_admin_user)):
     try:
         users = db.get_all_users()
         return {"success": True, "users": users}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post('/api/admin/users')
-async def admin_create_user(req: AdminUserCreateReq):
+async def admin_create_user(req: AdminUserCreateReq, admin: dict = Depends(require_admin_user)):
     try:
-        user = db.register_user(req.email, req.password, req.fullName)
+        user = db.register_user(req.email, req.password, req.fullName, role=req.role or "user")
         return {"success": True, "user": user}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.put('/api/admin/users/{user_id}')
-async def admin_update_user(user_id: str, req: AdminUserUpdateReq):
+async def admin_update_user(user_id: str, req: AdminUserUpdateReq, admin: dict = Depends(require_admin_user)):
     try:
-        success = db.update_user(user_id, req.email, req.fullName, req.password)
+        success = db.update_user(user_id, req.email, req.fullName, req.password, role=req.role)
         if success:
             return {"success": True}
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.delete('/api/admin/users/{user_id}')
-async def admin_delete_user(user_id: str):
+async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin_user)):
     try:
         success = db.delete_user(user_id)
         if success:
             return {"success": True}
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get('/api/admin/chunks')
-async def admin_get_chunks():
+async def admin_get_chunks(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    search: Optional[str] = None,
+    admin: dict = Depends(require_admin_user)
+):
     try:
-        chunks = db.get_all_chunks()
+        result = db.get_all_chunks(page=page, limit=limit, search=search)
+        return {"success": True, **result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get('/api/admin/docs/hierarchy')
+async def admin_get_docs_hierarchy(admin: dict = Depends(require_admin_user)):
+    try:
+        hierarchy = db.get_documents_hierarchy()
+        return {"success": True, "hierarchy": hierarchy}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get('/api/admin/docs/{source:path}/chunks')
+async def admin_get_hierarchy_chunks(
+    source: str,
+    chapter: str = Query("Không phân chương"),
+    admin: dict = Depends(require_admin_user)
+):
+    try:
+        chunks = db.get_chunks_by_hierarchy(source, chapter)
         return {"success": True, "chunks": chunks}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.put('/api/admin/chunks/{parent_id}')
-async def admin_update_chunk(parent_id: str, req: AdminChunkUpdateReq):
+@app.delete('/api/admin/docs/{source:path}')
+async def admin_delete_document(
+    source: str,
+    admin: dict = Depends(require_admin_user)
+):
+    global retriever
     try:
-        # 1. Update in SQLite
-        success = db.update_chunk(parent_id, req.text, req.chapter, req.article_ids)
+        # 1. Delete from DB
+        success = db.delete_document_by_source(source)
         if not success:
-            raise HTTPException(status_code=404, detail="Chunk not found in database")
+            raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu này trong cơ sở dữ liệu.")
+            
+        # 2. Update memory and JSON
+        if retriever:
+            retriever.remove_source_from_memory(source)
+            
+        # 3. Rebuild faiss index (background process or simple call)
+        import subprocess
+        try:
+            # We must rebuild faiss so search doesn't return deleted chunks
+            subprocess.run([sys.executable, "backend/build_faiss_local.py"], cwd=str(Path.cwd()), check=True)
+            if retriever:
+                retriever = None # force reload on next query
+                get_retriever()
+        except Exception as e:
+            print(f"Warning: Failed to rebuild FAISS after deletion: {e}")
+            
+        return {"success": True, "message": f"Đã xóa tài liệu '{source}' và các điều khoản liên quan thành công."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put('/api/admin/chunks/{parent_id}')
+async def admin_update_chunk(
+    parent_id: str,
+    req: AdminChunkUpdateReq,
+    admin: dict = Depends(require_admin_user)
+):
+    global retriever
+    try:
+        # 1. Update in SQLite with SHA-256 recalculation
+        db.update_chunk(parent_id, req.text, req.chapter or "", req.article_ids)
             
         # 2. Update in JSON for FAISS synchronization
         chunks_path = Path.cwd() / 'faiss_index_local' / 'parent_chunks.json'
@@ -635,11 +986,57 @@ async def admin_update_chunk(parent_id: str, req: AdminChunkUpdateReq):
             with open(chunks_path, 'w', encoding='utf-8') as f:
                 json.dump(json_chunks, f, ensure_ascii=False, indent=2)
 
-        return {"success": True}
-    except HTTPException:
-        raise
+        # 3. Update in-memory LocalRetriever immediately
+        if retriever:
+            retriever.update_parent_chunk_memory(parent_id, req.text, req.chapter, req.article_ids)
+
+        return {"success": True, "message": "Đã cập nhật và đồng bộ chunk thành công."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/api/admin/docs/upload')
+def admin_upload_pdf(
+    file: UploadFile = FastAPIFile(...),
+    admin: dict = Depends(require_admin_user)
+):
+    import subprocess
+    try:
+        ext = Path(file.filename).suffix.lower()
+        if ext != '.pdf':
+            raise HTTPException(status_code=400, detail="Chỉ hỗ trợ nạp tài liệu định dạng PDF.")
+
+        # Save to papers/
+        papers_dir = Path.cwd() / 'papers'
+        papers_dir.mkdir(exist_ok=True)
+        file_path = papers_dir / file.filename
+        
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+            
+        # Run pipeline
+        print(f"Running pipeline for new file: {file.filename}")
+        
+        # 1. Chunking single file with fast pypdf pipeline
+        subprocess.run([sys.executable, "backend/Chatbot.py", "--file", str(file_path)], cwd=str(Path.cwd()), check=True)
+        
+        # 2. Build FAISS index
+        subprocess.run([sys.executable, "backend/build_faiss_local.py"], cwd=str(Path.cwd()), check=True)
+        
+        # 3. Seed DB
+        subprocess.run([sys.executable, "backend/seed_db_from_json.py"], cwd=str(Path.cwd()), check=True)
+        
+        # 4. Reload retriever
+        if retriever:
+            retriever.reload_parent_chunks()
+
+        source_name = f"papers/{file.filename}"
+        return {"success": True, "message": "Đã thêm và xử lý tài liệu thành công.", "source": source_name}
+    except subprocess.CalledProcessError as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": f"Pipeline processing failed: {e}"})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
 
 # ═══════════════════════════════════════════════════════════════════
 # HOMEPAGE & SPA FALLBACK

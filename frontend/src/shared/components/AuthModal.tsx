@@ -70,23 +70,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#131b2e]/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
       <div className="bg-white/95 backdrop-blur-2xl rounded-[2.5rem] max-w-md w-full p-8 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,1)] border border-white/30 relative">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-[#444651] hover:text-[#00236f] p-1"
+          className="absolute top-4 right-4 text-slate-600 hover:text-blue-600 p-1"
         >
           <span className="material-symbols-outlined text-2xl">close</span>
         </button>
 
         {/* Tab Switcher */}
-        <div className="flex border-b border-[#c5c5d3] mb-6">
+        <div className="flex border-b border-blue-200 mb-6">
           <button
             onClick={() => { setMode('login'); setError(null); setPassword(''); setConfirmPassword(''); }}
             className={`flex-1 py-2.5 text-sm font-bold border-b-2 transition-colors ${
               mode === 'login'
-                ? 'border-[#00236f] text-[#00236f]'
-                : 'border-transparent text-[#444651] hover:text-[#00236f]'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-600 hover:text-blue-600'
             }`}
           >
             Đăng nhập
@@ -95,8 +95,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClick={() => { setMode('register'); setError(null); setPassword(''); setConfirmPassword(''); }}
             className={`flex-1 py-2.5 text-sm font-bold border-b-2 transition-colors ${
               mode === 'register'
-                ? 'border-[#00236f] text-[#00236f]'
-                : 'border-transparent text-[#444651] hover:text-[#00236f]'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-600 hover:text-blue-600'
             }`}
           >
             Đăng ký tài khoản
@@ -114,60 +114,68 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === 'register' && (
             <div>
-              <label className="block text-xs font-bold text-[#131b2e] mb-1">
+              <label htmlFor="authFullNameInput" className="block text-xs font-bold text-slate-900 mb-1">
                 Họ và tên doanh nghiệp / Cá nhân
               </label>
               <input
+                id="authFullNameInput"
+                name="fullName"
                 type="text"
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Nguyễn Văn A - Công ty XNK"
-                className="w-full bg-[#faf8ff] border border-[#c5c5d3] rounded-xl px-3.5 py-2 text-sm text-[#131b2e] focus:border-[#00236f] focus:outline-none"
+                className="w-full bg-blue-50 border border-blue-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
               />
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-bold text-[#131b2e] mb-1">
+            <label htmlFor="authEmailInput" className="block text-xs font-bold text-slate-900 mb-1">
               Địa chỉ Email
             </label>
             <input
+              id="authEmailInput"
+              name="email"
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="doanhnghiep@logichat.vn"
-              className="w-full bg-[#faf8ff] border border-[#c5c5d3] rounded-xl px-3.5 py-2 text-sm text-[#131b2e] focus:border-[#00236f] focus:outline-none"
+              className="w-full bg-blue-50 border border-blue-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-[#131b2e] mb-1">
+            <label htmlFor="authPasswordInput" className="block text-xs font-bold text-slate-900 mb-1">
               Mật khẩu
             </label>
             <input
+              id="authPasswordInput"
+              name="password"
               type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full bg-[#faf8ff] border border-[#c5c5d3] rounded-xl px-3.5 py-2 text-sm text-[#131b2e] focus:border-[#00236f] focus:outline-none"
+              className="w-full bg-blue-50 border border-blue-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
             />
           </div>
 
           {mode === 'register' && (
             <div>
-              <label className="block text-xs font-bold text-[#131b2e] mb-1">
+              <label htmlFor="authConfirmPasswordInput" className="block text-xs font-bold text-slate-900 mb-1">
                 Xác nhận lại mật khẩu
               </label>
               <input
+                id="authConfirmPasswordInput"
+                name="confirmPassword"
                 type="password"
                 required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-[#faf8ff] border border-[#c5c5d3] rounded-xl px-3.5 py-2 text-sm text-[#131b2e] focus:border-[#00236f] focus:outline-none"
+                className="w-full bg-blue-50 border border-blue-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
               />
             </div>
           )}
@@ -175,7 +183,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-[#131b2e] text-white font-bold text-sm py-3.5 rounded-2xl hover:bg-[#1e293b] transition-all shadow-[0_8px_16px_-4px_rgba(19,27,46,0.2)] active:scale-[0.98] mt-2 cursor-pointer disabled:opacity-60"
+            className="w-full bg-slate-900 text-white font-bold text-sm py-3.5 rounded-2xl hover:bg-[#1e293b] transition-all shadow-[0_8px_16px_-4px_rgba(19,27,46,0.2)] active:scale-[0.98] mt-2 cursor-pointer disabled:opacity-60"
           >
             {isLoading ? (
               <span className="flex items-center justify-center gap-2">
@@ -188,7 +196,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </form>
 
-        <div className="mt-4 pt-4 border-t border-[#c5c5d3] text-center text-xs text-[#444651]">
+        <div className="mt-4 pt-4 border-t border-blue-200 text-center text-xs text-slate-600">
           Bằng việc đăng nhập, bạn đồng ý với Điều khoản sử dụng và Chính sách bảo mật của LogiChat AI.
         </div>
       </div>

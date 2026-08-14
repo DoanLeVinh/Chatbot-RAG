@@ -63,18 +63,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-screen bg-[#faf8ff] relative overflow-hidden w-full">
+    <div className="flex-1 flex flex-col h-screen bg-blue-50 relative overflow-hidden w-full">
       {/* Desktop & Mobile Top Bar */}
-      <header className="flex justify-between items-center h-16 px-4 md:px-6 w-full sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-[#c5c5d3] shrink-0">
+      <header className="flex justify-between items-center h-16 px-4 md:px-6 w-full sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-blue-200 shrink-0">
         <div className="flex items-center gap-2 overflow-hidden">
           <button
             onClick={onOpenMobileSidebar}
-            className="md:hidden text-[#444651] hover:text-[#00236f] p-1.5 rounded-lg hover:bg-[#f2f3ff]"
+            className="md:hidden text-slate-600 hover:text-blue-600 p-1.5 rounded-lg hover:bg-[blue-50]"
             title="Mở menu history"
           >
             <span className="material-symbols-outlined text-2xl">menu</span>
           </button>
-          <h1 className="text-sm md:text-base font-bold text-[#00236f] truncate">
+          <h1 className="text-sm md:text-base font-bold text-blue-600 truncate">
             {session.title || 'Hỏi đáp Hải quan'}
           </h1>
         </div>
@@ -84,8 +84,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
             onClick={onToggleReferences}
             className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border transition-all cursor-pointer ${
               isReferencesOpen
-                ? 'bg-[#d0e1fb] text-[#00236f] border-[#00236f]'
-                : 'bg-white text-[#505f76] border-[#c5c5d3] hover:bg-[#f2f3ff] hover:text-[#00236f]'
+                ? 'bg-blue-200 text-blue-600 border-blue-600'
+                : 'bg-white text-slate-500 border-blue-200 hover:bg-[blue-50] hover:text-blue-600'
             }`}
           >
             <span className="material-symbols-outlined text-[18px]">
@@ -97,12 +97,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </header>
 
       {/* Main Chat Scroll Container */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 flex flex-col items-center pb-32">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 flex flex-col items-center">
         <div className="w-full max-w-[800px] flex flex-col gap-6">
           
           {/* System Data Context Banner */}
           <div className="flex justify-center mb-1">
-            <span className="bg-[#f2f3ff] text-[#444651] text-xs font-semibold px-3.5 py-1 rounded-full border border-[#c5c5d3]/50 flex items-center gap-1.5 shadow-2xs">
+            <span className="bg-[blue-50] text-slate-600 text-xs font-semibold px-3.5 py-1 rounded-full border border-blue-200/50 flex items-center gap-1.5 shadow-2xs">
               <span className="material-symbols-outlined text-sm text-emerald-600">
                 verified_user
               </span>
@@ -117,10 +117,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             if (isUser) {
               return (
                 <div key={msg.id} className="flex gap-3 max-w-[85%] ml-auto flex-row-reverse">
-                  <div className="w-8 h-8 rounded-full bg-[#dae2fd] text-[#444651] flex items-center justify-center shrink-0 shadow-2xs">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 text-slate-600 flex items-center justify-center shrink-0 shadow-2xs">
                     <span className="material-symbols-outlined text-sm">person</span>
                   </div>
-                  <div className="bg-[#00236f] text-white rounded-2xl rounded-tr-none p-4 shadow-sm text-sm sm:text-base leading-relaxed">
+                  <div className="bg-blue-600 text-white rounded-2xl rounded-tr-none p-4 shadow-sm text-sm sm:text-base leading-relaxed">
                     <p>{msg.text}</p>
                   </div>
                 </div>
@@ -130,27 +130,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // AI Response Message
             return (
               <div key={msg.id} className="flex gap-3 max-w-[95%] sm:max-w-[88%]">
-                <div className="w-8 h-8 rounded-full bg-[#1e3a8a] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                <div className="w-8 h-8 rounded-full bg-blue-700 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
                   <span className="material-symbols-outlined text-sm">gavel</span>
                 </div>
 
-                <div className="bg-white border border-[#c5c5d3] rounded-2xl rounded-tl-none p-4 md:p-5 text-[#131b2e] shadow-xs text-sm sm:text-base leading-relaxed space-y-4">
+                <div className="bg-white border border-blue-200 rounded-2xl rounded-tl-none p-4 md:p-5 text-slate-900 shadow-xs text-sm sm:text-base leading-relaxed space-y-4">
                   {/* Text Main */}
                   <p className="whitespace-pre-wrap">{msg.text}</p>
 
                   {/* Taxes Breakdown if available */}
                   {msg.taxes && msg.taxes.length > 0 && (
-                    <div className="space-y-2 bg-[#faf8ff] p-3.5 rounded-xl border border-[#c5c5d3]/60">
-                      <h3 className="font-bold text-[#00236f] text-sm">1. Thuế suất:</h3>
+                    <div className="space-y-2 bg-blue-50 p-3.5 rounded-xl border border-blue-200/60">
+                      <h3 className="font-bold text-blue-600 text-sm">1. Thuế suất:</h3>
                       <ul className="list-disc pl-5 space-y-1.5 text-xs sm:text-sm">
                         {msg.taxes.map((t, idx) => (
                           <li key={idx}>
-                            <strong className="text-[#131b2e]">{t.label}:</strong>{' '}
-                            <span className="font-bold text-[#00236f]">{t.rate}</span>
+                            <strong className="text-slate-900">{t.label}:</strong>{' '}
+                            <span className="font-bold text-blue-600">{t.rate}</span>
                             {t.citationCode && (
                               <button
                                 onClick={() => onCitationClick(t.citationCode!)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-[#e2e7ff] text-[#131b2e] text-[10px] font-bold uppercase rounded hover:bg-[#d0e1fb] transition-colors cursor-pointer border border-[#c5c5d3]/50"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-100 text-slate-900 text-[10px] font-bold uppercase rounded hover:bg-blue-200 transition-colors cursor-pointer border border-blue-200/50"
                               >
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                 {t.citationCode}
@@ -164,14 +164,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                   {/* Inspections / Special Regulations */}
                   {msg.inspections && (
-                    <div className="space-y-1.5 bg-[#faf8ff] p-3.5 rounded-xl border border-[#c5c5d3]/60">
-                      <h3 className="font-bold text-[#00236f] text-sm">2. Kiểm tra chuyên ngành:</h3>
-                      <p className="text-xs sm:text-sm text-[#444651]">
+                    <div className="space-y-1.5 bg-blue-50 p-3.5 rounded-xl border border-blue-200/60">
+                      <h3 className="font-bold text-blue-600 text-sm">2. Kiểm tra chuyên ngành:</h3>
+                      <p className="text-xs sm:text-sm text-slate-600">
                         {msg.inspections.description}
                         {msg.inspections.citationCode && (
                           <button
                             onClick={() => onCitationClick(msg.inspections!.citationCode!)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-[#e2e7ff] text-[#131b2e] text-[10px] font-bold uppercase rounded hover:bg-[#d0e1fb] transition-colors cursor-pointer border border-[#c5c5d3]/50"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-100 text-slate-900 text-[10px] font-bold uppercase rounded hover:bg-blue-200 transition-colors cursor-pointer border border-blue-200/50"
                           >
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                             {msg.inspections.citationCode}
@@ -183,7 +183,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                   {/* Download Summary PDF Button */}
                   {msg.summaryPdf && (
-                    <div className="pt-2 border-t border-[#c5c5d3]/60">
+                    <div className="pt-2 border-t border-blue-200/60">
                       <button
                         onClick={() =>
                           onOpenPdfModal(
@@ -191,7 +191,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             `Số tờ khai / HS Code: ${msg.hsCode || 'Chi tiết'}`
                           )
                         }
-                        className="text-xs sm:text-sm text-[#00236f] font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
+                        className="text-xs sm:text-sm text-blue-600 font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
                       >
                         <span className="material-symbols-outlined text-[18px]">
                           download
@@ -208,19 +208,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {/* Generating Loading State */}
           {isGenerating && (
             <div className="flex gap-3 max-w-[85%]">
-              <div className="w-8 h-8 rounded-full bg-[#1e3a8a] text-white flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-full bg-blue-700 text-white flex items-center justify-center shrink-0">
                 <span className="material-symbols-outlined text-sm animate-spin">
                   sync
                 </span>
               </div>
-              <div className="bg-white border border-[#c5c5d3] rounded-2xl rounded-tl-none p-4 flex gap-1.5 items-center">
-                <div className="w-2 h-2 rounded-full bg-[#00236f] animate-bounce" />
+              <div className="bg-white border border-blue-200 rounded-2xl rounded-tl-none p-4 flex gap-1.5 items-center">
+                <div className="w-2 h-2 rounded-full bg-blue-600 animate-bounce" />
                 <div
-                  className="w-2 h-2 rounded-full bg-[#00236f] animate-bounce"
+                  className="w-2 h-2 rounded-full bg-blue-600 animate-bounce"
                   style={{ animationDelay: '0.2s' }}
                 />
                 <div
-                  className="w-2 h-2 rounded-full bg-[#00236f] animate-bounce"
+                  className="w-2 h-2 rounded-full bg-blue-600 animate-bounce"
                   style={{ animationDelay: '0.4s' }}
                 />
               </div>
@@ -231,12 +231,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       </div>
 
-      {/* Sticky Bottom Input Bar */}
-      <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-[#faf8ff] via-[#faf8ff] to-transparent pt-6 pb-4 px-4 z-20">
+      {/* Static Bottom Input Bar */}
+      <div className="w-full bg-white border-t border-blue-200 pt-4 pb-4 px-4 shrink-0 z-20">
         <div className="max-w-[760px] mx-auto">
           {/* File attachment preview badge */}
           {attachedFile && (
-            <div className="mb-2 inline-flex items-center gap-2 bg-[#d0e1fb] text-[#00236f] px-3 py-1 rounded-lg text-xs font-semibold">
+            <div className="mb-2 inline-flex items-center gap-2 bg-blue-200 text-blue-600 px-3 py-1 rounded-lg text-xs font-semibold">
               <span className="material-symbols-outlined text-sm">attach_file</span>
               <span className="truncate max-w-[200px]">{attachedFile.name}</span>
               <button
@@ -250,10 +250,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
           <form
             onSubmit={handleInputSubmit}
-            className="relative bg-white border-2 border-[#c5c5d3] rounded-2xl shadow-lg focus-within:border-[#00236f] transition-all flex items-end p-2 gap-2"
+            className="relative bg-white border-2 border-blue-200 rounded-2xl shadow-lg focus-within:border-blue-600 transition-all flex items-end p-2 gap-2"
           >
             {/* Hidden File Input */}
             <input
+              id="chatFileInput"
+              name="chatFile"
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
@@ -262,26 +264,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-[#444651] hover:text-[#00236f] transition-colors rounded-xl hover:bg-[#f2f3ff] shrink-0"
+              className="p-2 text-slate-600 hover:text-blue-600 transition-colors rounded-xl hover:bg-[blue-50] shrink-0"
               title="Đính kèm tài liệu tờ khai/hóa đơn"
             >
               <span className="material-symbols-outlined text-xl">attach_file</span>
             </button>
 
             <textarea
+              id="chatMessageInput"
+              name="chatMessage"
               ref={textareaRef}
               value={inputText}
               onChange={handleTextareaInput}
               onKeyDown={handleTextareaKeyDown}
               placeholder="Nhập câu hỏi hoặc số tờ khai hải quan..."
               rows={1}
-              className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none max-h-36 min-h-[44px] py-2 px-1 text-sm sm:text-base text-[#131b2e] placeholder-[#757682]"
+              className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none max-h-36 min-h-[44px] py-2 px-1 text-sm sm:text-base text-slate-900 placeholder-[#757682]"
             />
 
             <button
               type="submit"
               disabled={!inputText.trim() && !attachedFile}
-              className="p-2.5 bg-[#00236f] text-white rounded-xl hover:bg-[#1e3a8a] disabled:opacity-40 disabled:hover:bg-[#00236f] transition-colors shrink-0 shadow-sm cursor-pointer"
+              className="p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 transition-colors shrink-0 shadow-sm cursor-pointer"
               title="Gửi"
             >
               <span className="material-symbols-outlined text-xl">send</span>
@@ -289,7 +293,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </form>
 
           <div className="text-center mt-2">
-            <span className="text-[11px] text-[#444651]">
+            <span className="text-[11px] text-slate-600">
               LogiChat có thể đưa ra thông tin không chính xác. Hãy kiểm tra lại các quy định pháp lý trước khi thực hiện.
             </span>
           </div>

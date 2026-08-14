@@ -335,7 +335,7 @@ export default function App() {
   return (
     <>
       {isAppLoading && <LiquidLoader onComplete={() => setIsAppLoading(false)} />}
-      <div className="min-h-[100dvh] bg-[#faf8ff] text-[#131b2e] flex flex-col font-sans selection:bg-[#d0e1fb] selection:text-[#00236f]">
+      <div className="min-h-[100dvh] bg-blue-50 text-slate-900 flex flex-col font-sans selection:bg-blue-200 selection:text-blue-600">
         {/* Screen 1: Landing Page */}
       {activeScreen === 'landing' && (
         <LandingPage

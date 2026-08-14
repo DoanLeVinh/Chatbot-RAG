@@ -77,43 +77,43 @@ export const PdfModal: React.FC<PdfModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-[#c5c5d3] flex flex-col gap-4">
-        <div className="flex justify-between items-center border-b border-[#c5c5d3] pb-3">
+      <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-blue-200 flex flex-col gap-4">
+        <div className="flex justify-between items-center border-b border-blue-200 pb-3">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-red-600 text-2xl">
               picture_as_pdf
             </span>
             <div>
-              <h3 className="font-bold text-base text-[#00236f]">{title}</h3>
-              {subtitle && <p className="text-xs text-[#444651]">{subtitle}</p>}
+              <h3 className="font-bold text-base text-blue-600">{title}</h3>
+              {subtitle && <p className="text-xs text-slate-600">{subtitle}</p>}
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-[#444651] hover:text-[#00236f] p-1"
+            className="text-slate-600 hover:text-blue-600 p-1"
           >
             <span className="material-symbols-outlined text-2xl">close</span>
           </button>
         </div>
 
         {/* PDF Simulated Viewer */}
-        <div className="bg-[#faf8ff] p-6 rounded-xl border border-[#c5c5d3] space-y-4 font-mono text-xs text-[#131b2e] leading-relaxed max-h-[60vh] overflow-y-auto">
-          <div className="text-center font-bold text-sm text-[#00236f] border-b pb-2">
+        <div className="bg-blue-50 p-6 rounded-xl border border-blue-200 space-y-4 font-mono text-xs text-slate-900 leading-relaxed max-h-[60vh] overflow-y-auto">
+          <div className="text-center font-bold text-sm text-blue-600 border-b pb-2">
             CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
             <br />
             Độc lập - Tự do - Hạnh phúc
           </div>
 
-          <div className="font-bold uppercase text-[#00236f] text-center pt-2">
+          <div className="font-bold uppercase text-blue-600 text-center pt-2">
             BẢN TÓM TẮT PHÁP LÝ HẢI QUAN & THUẾ SUẤT NHẬP KHẨU
           </div>
 
-          <p className="text-[#444651]">
+          <p className="text-slate-600">
             Ngày trích xuất: {new Date().toLocaleDateString('vi-VN')} | Đơn vị tư vấn: Hệ thống Trợ lý AI LogiChat Legal.
           </p>
 
           <div className="border p-3 rounded bg-white space-y-1">
-            <div className="font-bold text-[#00236f]">I. CĂN CỨ PHÁP LÝ CHÍNH</div>
+            <div className="font-bold text-blue-600">I. CĂN CỨ PHÁP LÝ CHÍNH</div>
             <div>- Luật Hải quan số 54/2014/QH13</div>
             <div>- Nghị định số 119/2022/NĐ-CP (Biểu thuế AJCEP/VJEPA)</div>
             <div>- Thông tư số 04/2023/TT-BTTTT</div>
@@ -121,7 +121,7 @@ export const PdfModal: React.FC<PdfModalProps> = ({
           </div>
 
           <div className="border p-3 rounded bg-white space-y-1">
-            <div className="font-bold text-[#00236f]">II. KẾT QUẢ PHÂN TÍCH THUẾ SUẤT & THỦ TỤC</div>
+            <div className="font-bold text-blue-600">II. KẾT QUẢ PHÂN TÍCH THUẾ SUẤT & THỦ TỤC</div>
             <div>• Thuế nhập khẩu ưu đãi đặc biệt: 0%</div>
             <div>• Thuế giá trị gia tăng (VAT): 10%</div>
             <div>• Thủ tục kiểm tra chuyên ngành: Miễn giấy phép (Trừ thiết bị thu phát sóng)</div>
@@ -137,7 +137,7 @@ export const PdfModal: React.FC<PdfModalProps> = ({
             <button
               onClick={handleDownload}
               disabled={isDownloading}
-              className="bg-[#00236f] text-white px-5 py-2.5 rounded-xl font-bold text-xs hover:bg-[#1e3a8a] transition-all flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-60"
+              className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs hover:bg-blue-700 transition-all flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-60"
             >
               {isDownloading ? (
                 <>
@@ -162,7 +162,7 @@ export const PdfModal: React.FC<PdfModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="border border-[#c5c5d3] text-[#444651] px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#f2f3ff]"
+            className="border border-blue-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-blue-50"
           >
             Đóng
           </button>

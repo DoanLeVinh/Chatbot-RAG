@@ -1,12 +1,17 @@
 """Automated Integration & Verification Test for LogiChat SQLite Backend."""
-import db
 import os
 import sys
+import uuid
 from pathlib import Path
+
+# Add backend directory to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import db
 
 # Ensure UTF-8 output on Windows terminal
 try:
     sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 except Exception:
     pass
 
@@ -17,7 +22,8 @@ def test_full_sqlite_flow():
     print("[OK] SQLite database initialized successfully at:", db.DB_PATH)
 
     print("\n=== TEST 2: User Registration & PBKDF2 Password Hashing ===")
-    user1_email = "doanhnghiep_a@logichat.vn"
+    test_run_id = uuid.uuid4().hex[:6]
+    user1_email = f"user1_{test_run_id}@logichat.vn"
     user1_pwd = "Password123!"
     user1_name = "Công ty XNK A"
 
@@ -34,7 +40,7 @@ def test_full_sqlite_flow():
         print("[OK] Successfully rejected duplicate email:", e)
 
     # Register User 2 for user isolation test
-    user2_email = "doanhnghiep_b@logichat.vn"
+    user2_email = f"user2_{test_run_id}@logichat.vn"
     user2_pwd = "Password456!"
     user2_name = "Công ty XNK B"
     reg2 = db.register_user(user2_email, user2_pwd, user2_name)
@@ -116,6 +122,11 @@ def test_full_sqlite_flow():
     assert updated_set["autoCite"] == False
     assert updated_set["fontSize"] == "large"
     print("[OK] Settings updated in SQLite:", updated_set)
+
+    # Cleanup test data
+    db.delete_user(reg1["id"])
+    db.delete_user(reg2["id"])
+    print("[OK] Test users cleaned up.")
 
     print("\n=== ALL TESTS PASSED SUCCESSFULLY! ===")
 

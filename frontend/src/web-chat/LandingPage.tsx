@@ -54,9 +54,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-[#faf8ff] text-[#131b2e] font-sans relative overflow-x-hidden selection:bg-[#d0e1fb] selection:text-[#00236f]">
+    <div className="min-h-[100dvh] flex flex-col bg-white text-slate-900 font-sans relative overflow-x-hidden selection:bg-blue-100 selection:text-blue-700">
       {/* Interactive Water Ripple Canvas Layer */}
-      <WaterRippleEffect interactive={true} opacity={0.65} />
+      <WaterRippleEffect interactive={true} opacity={0.3} />
 
       {/* Top Header */}
       <Header
@@ -68,7 +68,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       />
 
       {/* Main Hero Section */}
-      <main className="flex-1 flex flex-col justify-center hero-pattern px-4 md:px-8 py-12 md:py-20 relative z-10">
+      <main className="flex-1 flex flex-col justify-center px-4 md:px-8 py-12 md:py-20 relative z-10">
         <div className="max-w-7xl w-full mx-auto grid md:grid-cols-2 gap-8 md:gap-12 items-center">
           
           {/* Left Hero Text Column */}
@@ -79,24 +79,24 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             animate="visible"
           >
             {/* AI Badge */}
-            <motion.div variants={itemVariants} className="inline-flex items-center gap-2 bg-[#e2e7ff] text-[#00236f] px-3 py-1 rounded-full text-xs font-semibold w-max border border-[#c5c5d3] shadow-2xs">
-              <span className="material-symbols-outlined text-[16px] text-[#00236f]">
+            <motion.div variants={itemVariants} className="inline-flex items-center gap-2 bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-semibold w-max border border-blue-100">
+              <span className="material-symbols-outlined text-[16px] text-blue-600">
                 verified
               </span>
-              <span>AI-Powered Legal Assistant</span>
+              <span>Trợ lý Pháp lý AI</span>
             </motion.div>
 
             {/* Headline */}
             <motion.div variants={itemVariants}>
-              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#131b2e] leading-[1.15] tracking-tight max-w-2xl">
-                Navigate Customs Law with Absolute Precision.
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.15] tracking-tight max-w-2xl">
+                Tra Cứu Luật Hải Quan Chính Xác Tuyệt Đối.
               </h1>
             </motion.div>
 
             {/* Description */}
             <motion.div variants={itemVariants}>
-              <p className="text-base sm:text-lg text-[#444651] max-w-xl leading-relaxed">
-                LogiChat leverages advanced AI to provide instant, accurate interpretations of complex import-export regulations, sourcing directly from official legal codes.
+              <p className="text-base sm:text-lg text-slate-600 max-w-xl leading-relaxed">
+                LogiChat ứng dụng AI tiên tiến để phân tích và giải đáp các quy định xuất nhập khẩu phức tạp, trích xuất dữ liệu trực tiếp từ các văn bản pháp luật chính thức.
               </p>
             </motion.div>
 
@@ -104,96 +104,97 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <motion.div variants={itemVariants} className="flex flex-col sm:flex-row gap-4 pt-2">
               <button
                 onClick={onStartChat}
-                className="bg-[#131b2e] text-white px-6 py-3.5 rounded-xl font-bold hover:bg-[#1e293b] active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-[0_4px_12px_rgba(19,27,46,0.15)] hover:shadow-[0_8px_20px_rgba(19,27,46,0.2)] cursor-pointer text-base"
+                className="bg-blue-600 text-white px-6 py-3.5 rounded-xl font-bold hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow cursor-pointer text-base"
               >
-                <span>Get Started</span>
+                <span>Bắt đầu ngay</span>
                 <span className="material-symbols-outlined text-xl">arrow_forward</span>
               </button>
 
               <button
                 onClick={() => setShowDemoModal(true)}
-                className="bg-white/80 backdrop-blur-sm text-[#131b2e] border border-[#c5c5d3] px-6 py-3.5 rounded-xl font-bold hover:bg-[#f2f3ff] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-base shadow-[0_4px_12px_rgba(0,0,0,0.05)]"
+                className="bg-white text-slate-800 border border-slate-200 px-6 py-3.5 rounded-xl font-bold hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-base shadow-sm"
               >
-                <span className="material-symbols-outlined text-xl text-[#131b2e]">
+                <span className="material-symbols-outlined text-xl text-slate-600">
                   play_circle
                 </span>
-                <span>Watch Demo</span>
+                <span>Xem Demo</span>
               </button>
             </motion.div>
           </motion.div>
 
           {/* Right Bento Box Case Analysis Engine Graphic */}
           <div className="relative w-full h-[480px] sm:h-[520px]">
-            {/* Background glowing water blobs */}
-            <div className="absolute -right-8 -bottom-8 w-48 h-48 bg-[#dce1ff] rounded-full blur-3xl opacity-50 animate-water-pulse pointer-events-none" />
-            <div className="absolute -left-8 -top-8 w-56 h-56 bg-[#d3e4fe] rounded-full blur-3xl opacity-50 animate-float-water pointer-events-none" />
+            {/* Minimalist Background glow */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-blue-50 rounded-full blur-3xl opacity-60 pointer-events-none" />
 
             {/* Main Interactive Preview Card */}
-            <div className="absolute inset-0 bg-white rounded-2xl border border-[#c5c5d3] shadow-[0_12px_40px_rgba(0,35,111,0.08)] p-5 flex flex-col gap-4 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-white/80 rounded-2xl border border-blue-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-5 flex flex-col gap-4 overflow-hidden backdrop-blur-md">
               {/* Card Header */}
-              <div className="flex items-center gap-2 border-b border-[#c5c5d3] pb-3">
-                <span className="material-symbols-outlined text-[#00236f] text-xl">
+              <div className="flex items-center gap-2 border-b border-blue-50 pb-3">
+                <span className="material-symbols-outlined text-blue-600 text-xl">
                   gavel
                 </span>
-                <span className="text-xs font-bold text-[#444651] uppercase tracking-wider">
-                  CASE ANALYSIS ENGINE
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                  HỆ THỐNG PHÂN TÍCH
                 </span>
               </div>
 
               {/* Chat Interface Preview */}
               <div className="flex flex-col gap-3 flex-1 overflow-y-auto pr-1">
                 {/* User Message Bubble */}
-                <div className="self-end bg-[#1e3a8a] text-[#90a8ff] p-3 rounded-2xl rounded-tr-none max-w-[85%] text-xs sm:text-sm font-medium leading-relaxed shadow-2xs">
+                <div className="self-end bg-blue-600 text-white p-3 rounded-2xl rounded-tr-none max-w-[85%] text-xs sm:text-sm font-medium leading-relaxed shadow-sm">
                   {demoQueryState === 'analyzed' && demoInputValue
                     ? demoInputValue
-                    : 'What are the tariff implications for importing electronic components under HS Code 8542.31?'}
+                    : 'Mức thuế nhập khẩu linh kiện điện tử mã HS 8542.31 là bao nhiêu?'}
                 </div>
 
                 {/* AI Response Bubble */}
-                <div className="self-start bg-white text-[#131b2e] border border-[#c5c5d3] p-3.5 rounded-2xl rounded-tl-none max-w-[92%] text-xs sm:text-sm flex flex-col gap-2 shadow-xs">
-                  <div className="flex items-center gap-1.5 text-[#00236f]">
-                    <span className="material-symbols-outlined text-[18px]">
+                <div className="self-start bg-white text-slate-900 border border-blue-200 p-3.5 rounded-2xl rounded-tl-none max-w-[92%] text-xs sm:text-sm flex flex-col gap-2 shadow-xs">
+                  <div className="flex items-center gap-1.5 text-blue-600 mb-2">
+                    <span className="material-symbols-outlined text-lg">
                       psychology
                     </span>
                     <span className="font-bold text-xs uppercase tracking-wider">
-                      LogiChat Analysis
+                      PHÂN TÍCH TỪ LOGICHAT
                     </span>
                   </div>
 
-                  <p className="leading-relaxed text-[#131b2e]">
-                    Based on the current customs tariff schedule, HS Code 8542.31 (Electronic integrated circuits - Processors and controllers) is subject to a standard import duty of 0% under the WTO Information Technology Agreement (ITA).
+                  <p className="leading-relaxed text-slate-900">
+                    Dựa trên biểu thuế hiện hành, mã HS 8542.31 (Mạch điện tử tích hợp - Bộ xử lý và bộ điều khiển) được hưởng mức thuế nhập khẩu ưu đãi 0% theo Hiệp định Công nghệ Thông tin WTO (ITA).
                   </p>
 
                   {/* Citation Source Chips */}
                   <div className="flex gap-2 mt-1 flex-wrap">
-                    <span className="inline-flex items-center gap-1.5 bg-[#e2e7ff] text-[#444651] px-2 py-1 rounded text-[11px] font-mono border border-[#c5c5d3] hover:bg-[#d2d9f4] transition-colors cursor-pointer">
+                    <span className="inline-flex items-center gap-1.5 bg-blue-100 text-slate-600 px-2 py-1 rounded text-[11px] font-mono border border-blue-200 hover:bg-[#d2d9f4] transition-colors cursor-pointer">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      Decree 122/2016/ND-CP
+                      Nghị định 122/2016/NĐ-CP
                     </span>
-                    <span className="inline-flex items-center gap-1.5 bg-[#e2e7ff] text-[#444651] px-2 py-1 rounded text-[11px] font-mono border border-[#c5c5d3] hover:bg-[#d2d9f4] transition-colors cursor-pointer">
+                    <span className="inline-flex items-center gap-1.5 bg-blue-100 text-slate-600 px-2 py-1 rounded text-[11px] font-mono border border-blue-200 hover:bg-[#d2d9f4] transition-colors cursor-pointer">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      Circular 65/2017/TT-BTC
+                      Thông tư 65/2017/TT-BTC
                     </span>
                   </div>
                 </div>
               </div>
 
               {/* Input Area Preview */}
-              <form onSubmit={handleDemoSubmit} className="mt-auto border border-[#00236f] rounded-xl p-1.5 flex items-center bg-[#faf8ff] focus-within:ring-2 focus-within:ring-[#00236f]/30 transition-all">
+              <form onSubmit={handleDemoSubmit} className="mt-auto border border-blue-600 rounded-xl p-1.5 flex items-center bg-blue-50 focus-within:ring-2 focus-within:ring-blue-600/30 transition-all">
                 <span className="material-symbols-outlined text-[#757682] mx-2 text-xl">
                   attach_file
                 </span>
                 <input
+                  id="landingDemoInput"
+                  name="demoQuery"
                   type="text"
                   value={demoInputValue}
                   onChange={(e) => setDemoInputValue(e.target.value)}
-                  placeholder="Enter scenario or HS code..."
-                  className="flex-1 bg-transparent border-none focus:outline-none text-xs sm:text-sm text-[#131b2e] placeholder-[#757682]"
+                  placeholder="Nhập câu hỏi hoặc mã HS..."
+                  className="flex-1 bg-transparent border-none focus:outline-none text-xs sm:text-sm text-slate-900 placeholder-[#757682]"
                 />
                 <button
                   type="submit"
                   onClick={onStartChat}
-                  className="bg-[#00236f] text-white rounded-lg p-2 flex items-center justify-center hover:bg-[#1e3a8a] transition-all active:scale-95 cursor-pointer shadow-2xs"
+                  className="bg-blue-600 text-white rounded-lg p-2 flex items-center justify-center hover:bg-blue-700 transition-all active:scale-95 cursor-pointer shadow-2xs"
                   title="Thử tư vấn ngay"
                 >
                   <span className="material-symbols-outlined text-[18px]">
@@ -208,23 +209,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </main>
 
       {/* Footer */}
-      <footer className="bg-[#f2f3ff] text-[#505f76] text-xs py-6 px-6 md:px-12 w-full border-t border-[#c5c5d3] relative z-10">
+      <footer className="bg-white text-slate-500 text-xs py-6 px-6 md:px-12 w-full border-t border-blue-100 relative z-10">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="font-bold text-[#00236f]">
-            © 2024 LogiChat AI. All rights reserved.
+          <div className="font-bold text-slate-600">
+            © 2024 LogiChat AI. Đã đăng ký bản quyền.
           </div>
           <div className="flex flex-wrap justify-center gap-4 md:gap-6 font-medium">
-            <a href="#" className="hover:text-[#00236f] transition-colors">
-              Terms of Service
+            <a href="#" className="hover:text-blue-600 transition-colors">
+              Điều khoản sử dụng
             </a>
-            <a href="#" className="hover:text-[#00236f] transition-colors">
-              Privacy Policy
+            <a href="#" className="hover:text-blue-600 transition-colors">
+              Chính sách bảo mật
             </a>
-            <a href="#" className="hover:text-[#00236f] transition-colors">
-              Contact Support
+            <a href="#" className="hover:text-blue-600 transition-colors">
+              Liên hệ hỗ trợ
             </a>
-            <a href="#" className="hover:text-[#00236f] transition-colors">
-              Legal Disclaimer
+            <a href="#" className="hover:text-blue-600 transition-colors">
+              Tuyên bố pháp lý
             </a>
           </div>
         </div>
@@ -233,33 +234,33 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Watch Demo Modal */}
       {showDemoModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-[#c5c5d3] flex flex-col gap-4">
-            <div className="flex justify-between items-center border-b border-[#c5c5d3] pb-3">
-              <h3 className="font-bold text-lg text-[#00236f] flex items-center gap-2">
-                <span className="material-symbols-outlined text-[#00236f]">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-blue-200 flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-blue-200 pb-3">
+              <h3 className="font-bold text-lg text-blue-600 flex items-center gap-2">
+                <span className="material-symbols-outlined text-blue-600">
                   smart_toy
                 </span>
                 Demo Tra Cứu Hải Quan Bằng AI LogiChat
               </h3>
               <button
                 onClick={() => setShowDemoModal(false)}
-                className="text-[#444651] hover:text-[#00236f] p-1"
+                className="text-slate-600 hover:text-blue-600 p-1"
               >
                 <span className="material-symbols-outlined text-2xl">close</span>
               </button>
             </div>
 
-            <div className="bg-[#faf8ff] p-4 rounded-xl border border-[#c5c5d3] space-y-3">
-              <p className="text-sm text-[#131b2e] leading-relaxed">
+            <div className="bg-blue-50 p-4 rounded-xl border border-blue-200 space-y-3">
+              <p className="text-sm text-slate-900 leading-relaxed">
                 LogiChat tự động phân tích HS Code, tra cứu biểu thuế ưu đãi đặc biệt (AJCEP, VJEPA, EVFTA...), kiểm tra danh mục quản lý chuyên ngành và trích dẫn văn bản pháp luật Hải quan thời gian thực.
               </p>
               
-              <div className="p-4 bg-white rounded-lg border border-[#00236f]/30 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-[#00236f]">
+              <div className="p-4 bg-white rounded-lg border border-blue-600/30 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-blue-600">
                   <span className="material-symbols-outlined text-sm">lightbulb</span>
                   Ví dụ câu hỏi mẫu bạn có thể thử:
                 </div>
-                <ul className="text-xs text-[#444651] space-y-1 list-disc pl-4">
+                <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
                   <li>"Thuế nhập khẩu linh kiện vi mạch điện tử HS 8542.31 từ Nhật Bản?"</li>
                   <li>"Thủ tục công bố tiêu chuẩn áp dụng cho Thiết bị y tế loại B?"</li>
                   <li>"Hồ sơ xin C/O mẫu E cho hàng dệt may xuất khẩu?"</li>
@@ -270,7 +271,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex justify-end gap-3 pt-2">
               <button
                 onClick={() => setShowDemoModal(false)}
-                className="px-4 py-2 text-sm font-semibold text-[#444651] hover:bg-[#f2f3ff] rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-blue-50 rounded-lg transition-colors"
               >
                 Đóng
               </button>
@@ -279,7 +280,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   setShowDemoModal(false);
                   onStartChat();
                 }}
-                className="px-5 py-2 text-sm font-bold bg-[#00236f] text-white rounded-lg hover:bg-[#1e3a8a] transition-all"
+                className="px-5 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all"
               >
                 Trải nghiệm Chat Ngay
               </button>

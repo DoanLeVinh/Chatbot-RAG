@@ -35,7 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const last7DaysSessions = sessions.filter((s) => s.group === 'LAST_7_DAYS');
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-[#d2d9f4] p-4 border-r border-[#c5c5d3] w-[280px]">
+    <div className="flex flex-col h-full bg-[#d2d9f4] p-4 border-r border-blue-200 w-[280px]">
       {/* Brand Header */}
       <div className="flex items-center justify-between mb-5 px-1 pt-1">
         <div
@@ -44,16 +44,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <LogiChatLogo iconOnly size="sm" />
           <div>
-            <h1 className="font-bold text-[#00236f] text-base leading-tight group-hover:text-[#1e3a8a] transition-colors">
+            <h1 className="font-bold text-blue-600 text-base leading-tight group-hover:text-blue-700 transition-colors">
               LogiChat History
             </h1>
-            <p className="text-xs text-[#444651]">Legal Assistant</p>
+            <p className="text-xs text-slate-600">Legal Assistant</p>
           </div>
         </div>
         {/* Mobile close button */}
         <button
           onClick={onCloseMobile}
-          className="md:hidden text-[#444651] hover:text-[#00236f] p-1"
+          className="md:hidden text-slate-600 hover:text-blue-600 p-1"
         >
           <span className="material-symbols-outlined text-xl">close</span>
         </button>
@@ -65,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onNewChat();
           onCloseMobile();
         }}
-        className="w-full bg-[#131b2e] text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 mb-4 hover:bg-[#1e293b] transition-all shadow-[0_4px_12px_rgba(19,27,46,0.1)] active:scale-[0.98] text-sm"
+        className="w-full bg-slate-900 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 mb-4 hover:bg-[#1e293b] transition-all shadow-[0_4px_12px_rgba(19,27,46,0.1)] active:scale-[0.98] text-sm"
       >
         <span className="material-symbols-outlined text-[18px]">add</span>
         New Chat
@@ -82,8 +82,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeScreen === 'history'
-                ? 'bg-[#d0e1fb] text-[#00236f]'
-                : 'text-[#444651] hover:bg-[#e2e7ff] hover:text-[#00236f]'
+                ? 'bg-blue-200 text-blue-600'
+                : 'text-slate-600 hover:bg-blue-100 hover:text-blue-600'
             }`}
           >
             <span className="material-symbols-outlined text-[18px]">history</span>
@@ -94,7 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* TODAY */}
         {todaySessions.length > 0 && (
           <div>
-            <h2 className="text-[11px] font-semibold text-[#444651] px-3 mb-1.5 uppercase tracking-wider">
+            <h2 className="text-[11px] font-semibold text-slate-600 px-3 mb-1.5 uppercase tracking-wider">
               Today
             </h2>
             <ul className="space-y-1">
@@ -110,8 +110,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }}
                     className={`rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all ${
                       isActive
-                        ? 'bg-[#d0e1fb] text-[#00236f] font-semibold shadow-xs'
-                        : 'text-[#444651] hover:bg-[#e2e7ff] hover:text-[#00236f]'
+                        ? 'bg-blue-200 text-blue-600 font-semibold shadow-xs'
+                        : 'text-slate-600 hover:bg-blue-100 hover:text-blue-600'
                     }`}
                   >
                     <span className="material-symbols-outlined text-[18px] shrink-0">
@@ -128,7 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* YESTERDAY */}
         {yesterdaySessions.length > 0 && (
           <div>
-            <h2 className="text-[11px] font-semibold text-[#444651] px-3 mb-1.5 uppercase tracking-wider">
+            <h2 className="text-[11px] font-semibold text-slate-600 px-3 mb-1.5 uppercase tracking-wider">
               Yesterday
             </h2>
             <ul className="space-y-1">
@@ -144,8 +144,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }}
                     className={`rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all ${
                       isActive
-                        ? 'bg-[#d0e1fb] text-[#00236f] font-semibold'
-                        : 'text-[#444651] hover:bg-[#e2e7ff] hover:text-[#00236f]'
+                        ? 'bg-blue-200 text-blue-600 font-semibold'
+                        : 'text-slate-600 hover:bg-blue-100 hover:text-blue-600'
                     }`}
                   >
                     <span className="material-symbols-outlined text-[18px] shrink-0">
@@ -162,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* LAST 7 DAYS */}
         {last7DaysSessions.length > 0 && (
           <div>
-            <h2 className="text-[11px] font-semibold text-[#444651] px-3 mb-1.5 uppercase tracking-wider">
+            <h2 className="text-[11px] font-semibold text-slate-600 px-3 mb-1.5 uppercase tracking-wider">
               Last 7 Days
             </h2>
             <ul className="space-y-1">
@@ -178,8 +178,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }}
                     className={`rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all ${
                       isActive
-                        ? 'bg-[#d0e1fb] text-[#00236f] font-semibold'
-                        : 'text-[#444651] hover:bg-[#e2e7ff] hover:text-[#00236f]'
+                        ? 'bg-blue-200 text-blue-600 font-semibold'
+                        : 'text-slate-600 hover:bg-blue-100 hover:text-blue-600'
                     }`}
                   >
                     <span className="material-symbols-outlined text-[18px] shrink-0">
@@ -195,13 +195,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Settings at Bottom */}
-      <div className="mt-auto pt-3 border-t border-[#c5c5d3]">
+      <div className="mt-auto pt-3 border-t border-blue-200">
         {currentUser && (
           <div className="px-3 py-2 mb-1 flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-[#00236f] text-white flex items-center justify-center text-xs font-bold">
+            <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
               {currentUser.fullName.charAt(0).toUpperCase()}
             </div>
-            <span className="text-xs font-medium text-[#131b2e] truncate max-w-[150px]">
+            <span className="text-xs font-medium text-slate-900 truncate max-w-[150px]">
               Hi, {currentUser.fullName}
             </span>
           </div>
@@ -211,12 +211,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onOpenSettings();
             onCloseMobile();
           }}
-          className="w-full text-[#444651] hover:bg-[#e2e7ff] hover:text-[#00236f] rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all font-medium"
+          className="w-full text-slate-600 hover:bg-blue-100 hover:text-blue-600 rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all font-medium"
         >
           <span className="material-symbols-outlined text-[18px]">settings</span>
-          Settings
+          Cài đặt
         </button>
-        {onLogout && (
+        {currentUser && onLogout && (
           <button
             onClick={() => {
               onLogout();
