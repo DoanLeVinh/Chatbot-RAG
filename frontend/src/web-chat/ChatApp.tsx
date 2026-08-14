@@ -340,6 +340,46 @@ export default function App() {
     }
   };
 
+  // Handle Delete Session (with backend sync + safe active-session fallback)
+  const handleDeleteSession = async (sessionId: string) => {
+    const confirmed = window.confirm(
+      'Bạn có chắc chắn muốn xóa cuộc hội thoại này? Hành động này không thể hoàn tác.'
+    );
+    if (!confirmed) return;
+
+    try {
+      const userIdParam = currentUser?.id
+        ? `?userId=${encodeURIComponent(currentUser.id)}`
+        : '';
+      const res = await fetch(`/api/sessions/${sessionId}${userIdParam}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        alert('Không thể xóa cuộc hội thoại. Vui lòng thử lại.');
+        return;
+      }
+    } catch {
+      alert('Không thể xóa cuộc hội thoại. Vui lòng kiểm tra kết nối và thử lại.');
+      return;
+    }
+
+    setSessions((prev) => {
+      const remaining = prev.filter((s) => s.id !== sessionId);
+
+      if (activeSessionId === sessionId) {
+        if (remaining.length > 0) {
+          setActiveSessionId(remaining[0].id);
+        } else {
+          const blank = createDefaultBlankSession();
+          setActiveSessionId(blank.id);
+          return [blank];
+        }
+      }
+
+      return remaining;
+    });
+  };
+
   // Handle User Login/Register Success
   const handleAuthSuccess = (userInfo: { id?: string; email?: string; fullName: string }) => {
     const user = {
@@ -405,6 +445,7 @@ export default function App() {
             onNewChat={handleNewChat}
             onNavigateScreen={(scr) => setActiveScreen(scr)}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onDeleteSession={handleDeleteSession}
             isMobileOpen={isMobileSidebarOpen}
             onCloseMobile={() => setIsMobileSidebarOpen(false)}
             currentUser={currentUser}
@@ -433,6 +474,7 @@ export default function App() {
                 }}
                 onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
                 onNewChat={handleNewChat}
+                onDeleteSession={handleDeleteSession}
               />
             )}
 
