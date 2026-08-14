@@ -110,6 +110,36 @@ def init_db():
             );
         """)
 
+        # Table: session_documents — tài liệu người dùng tải lên TRONG 1 phiên chat
+        # (khác với bảng `documents`/`document_parent_chunks` vốn dành cho kho luật admin nạp chung)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS session_documents (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                status TEXT DEFAULT 'processed',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+        """)
+
+        # Table: session_document_chunks — các đoạn văn bản đã chia nhỏ + embedding
+        # của tài liệu, dùng để giới hạn phạm vi trả lời trong 1 phiên chat cụ thể.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS session_document_chunks (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                filename TEXT,
+                chunk_index INTEGER DEFAULT 0,
+                text TEXT NOT NULL,
+                embedding_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(document_id) REFERENCES session_documents(id) ON DELETE CASCADE
+            );
+        """)
+
         # Table: settings
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
@@ -524,7 +554,7 @@ def delete_session(session_id: str, user_id: Optional[str] = None) -> bool:
 
 def add_message(session_id: str, sender: str, text: str, timestamp: str,
                 hs_code: str = None, taxes: list = None, inspections: dict = None,
-                citations: list = None, summary_pdf: dict = None) -> str:
+                citations: list = None, summary_pdf: dict = None, user_id: str = None) -> str:
     """Add a new chat message to SQLite database with auto-session recovery."""
     msg_id = f"{sender}-{uuid.uuid4().hex[:8]}"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -537,15 +567,21 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
     with get_connection() as conn:
         cursor = conn.cursor()
         
-        # Auto-recover session if it doesn't exist to prevent foreign key errors
-        cursor.execute("SELECT id, title FROM sessions WHERE id = ?;", (session_id,))
+        # Auto-recover session if it doesn't exist to prevent foreign key errors.
+        # Gắn user_id ngay khi tạo, để lịch sử của người dùng đã đăng nhập không bị
+        # rơi vào phiên "vô danh" (user_id NULL) và biến mất sau khi tải lại trang.
+        cursor.execute("SELECT id, title, user_id FROM sessions WHERE id = ?;", (session_id,))
         s_row = cursor.fetchone()
         if not s_row:
             cursor.execute(
                 """INSERT INTO sessions (id, user_id, title, category_tag, group_name, preview_text, created_at, updated_at)
-                   VALUES (?, NULL, 'Hội thoại tư vấn mới', 'Tư vấn Hải quan', 'TODAY', ?, ?, ?);""",
-                (session_id, text[:100] if text else "Bắt đầu...", now_str, now_str)
+                   VALUES (?, ?, 'Hội thoại tư vấn mới', 'Tư vấn Hải quan', 'TODAY', ?, ?, ?);""",
+                (session_id, user_id, text[:100] if text else "Bắt đầu...", now_str, now_str)
             )
+        elif user_id and not s_row["user_id"]:
+            # Phiên đã tồn tại nhưng chưa gắn user (được tạo lúc chưa đăng nhập) —
+            # nếu giờ người dùng đã đăng nhập, gắn phiên này vào tài khoản của họ.
+            cursor.execute("UPDATE sessions SET user_id = ? WHERE id = ?;", (user_id, session_id))
 
         cursor.execute(
             """INSERT INTO messages (id, session_id, sender, text, timestamp, hs_code, taxes_json, inspections_json, citations_json, summary_pdf_json)
@@ -599,6 +635,69 @@ def save_attachment(session_id: Optional[str], user_id: Optional[str], file_name
             "type": file_type,
             "url": file_url
         }
+
+
+# ─── Session-scoped document chunks (Chat theo phạm vi tài liệu tải lên) ───
+
+def save_session_document_chunks(session_id: str, filename: str, chunks_with_embeddings: list) -> str:
+    """Lưu tài liệu + các chunk đã embed cho 1 phiên chat cụ thể.
+    chunks_with_embeddings: List[{'text': str, 'embedding': List[float]}]
+    Trả về document_id.
+    """
+    document_id = f"sdoc-{uuid.uuid4().hex[:10]}"
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM sessions WHERE id = ?;", (session_id,))
+        if not cursor.fetchone():
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute(
+                """INSERT INTO sessions (id, user_id, title, category_tag, group_name, preview_text, created_at, updated_at)
+                   VALUES (?, NULL, 'Hội thoại tư vấn mới', 'Tư vấn Hải quan', 'TODAY', 'Đính kèm tài liệu', ?, ?);""",
+                (session_id, now_str, now_str)
+            )
+
+        cursor.execute(
+            "INSERT INTO session_documents (id, session_id, filename, status) VALUES (?, ?, ?, 'processed');",
+            (document_id, session_id, filename)
+        )
+
+        for idx, ch in enumerate(chunks_with_embeddings):
+            chunk_id = f"schunk-{uuid.uuid4().hex[:10]}"
+            cursor.execute(
+                """INSERT INTO session_document_chunks
+                   (id, session_id, document_id, filename, chunk_index, text, embedding_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?);""",
+                (chunk_id, session_id, document_id, filename, idx, ch['text'], json.dumps(ch['embedding']))
+            )
+        conn.commit()
+        return document_id
+
+
+def get_session_document_chunks(session_id: str) -> List[Dict[str, Any]]:
+    """Lấy toàn bộ chunk (kèm embedding đã parse) của các tài liệu đã tải lên trong 1 phiên."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT filename, chunk_index, text, embedding_json FROM session_document_chunks WHERE session_id = ?;",
+            (session_id,)
+        )
+        rows = cursor.fetchall()
+        return [{
+            'source': r['filename'],
+            'chunk_index': r['chunk_index'],
+            'text': r['text'],
+            'embedding': json.loads(r['embedding_json']),
+        } for r in rows]
+
+
+def session_has_documents(session_id: str) -> bool:
+    """Kiểm tra phiên chat này đã có tài liệu người dùng tải lên chưa (để quyết định
+    có giới hạn phạm vi trả lời hay không)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM session_documents WHERE session_id = ? LIMIT 1;", (session_id,))
+        return cursor.fetchone() is not None
+
 
 def get_user_settings(user_id: str) -> Dict[str, Any]:
     """Get settings for a user."""

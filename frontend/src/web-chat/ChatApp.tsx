@@ -181,6 +181,8 @@ export default function App() {
 
     // Upload file if attached
     let uploadedFile: any = null;
+    let scopedRagJustEnabled = false;
+    let scopedRagError: string | null = null;
     if (file) {
       try {
         const formData = new FormData();
@@ -198,6 +200,11 @@ export default function App() {
         if (uploadRes.ok) {
           const uploadData = await uploadRes.json();
           uploadedFile = uploadData.file;
+          if (uploadData.scopedRagEnabled) {
+            scopedRagJustEnabled = true;
+          } else if (uploadData.scopedRagError) {
+            scopedRagError = uploadData.scopedRagError;
+          }
           if (!text.trim()) {
             userMessageText = `[Đính kèm: ${uploadedFile.name}]`;
           }
@@ -214,6 +221,22 @@ export default function App() {
       timestamp: timestampStr,
     };
 
+    const systemNoticeMsg: ChatMessage | null = scopedRagJustEnabled
+      ? {
+          id: `sys-${Date.now()}`,
+          sender: 'ai',
+          text: `🔒 Đã nhận và xử lý "${uploadedFile?.name}". Từ giờ trong cuộc trò chuyện này, tôi sẽ CHỈ trả lời dựa trên nội dung tài liệu bạn vừa tải lên. Nếu muốn hỏi về kho luật chung, hãy bắt đầu một "Trò chuyện mới".`,
+          timestamp: timestampStr,
+        }
+      : scopedRagError
+      ? {
+          id: `sys-${Date.now()}`,
+          sender: 'ai',
+          text: `⚠️ ${scopedRagError}`,
+          timestamp: timestampStr,
+        }
+      : null;
+
     // Update session with user message
     const updatedSessions = sessions.map((s) => {
       if (s.id === activeSession.id) {
@@ -222,7 +245,9 @@ export default function App() {
           title: s.title === 'Hội thoại tư vấn mới' ? userMessageText.slice(0, 36) : s.title,
           previewText: userMessageText,
           updatedAt: 'Hôm nay',
-          messages: [...s.messages, userMsg],
+          messages: systemNoticeMsg
+            ? [...s.messages, userMsg, systemNoticeMsg]
+            : [...s.messages, userMsg],
           attachments: uploadedFile
             ? [...(s.attachments || []), uploadedFile]
             : s.attachments,

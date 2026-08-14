@@ -7,7 +7,7 @@ and professional UTF-8 PDF export.
 Run:
   python backend/serve.py
 """
-from fastapi import FastAPI, Request, UploadFile, File as FastAPIFile, Header, HTTPException, Depends, Query
+from fastapi import FastAPI, Request, UploadFile, File as FastAPIFile, Header, HTTPException, Depends, Query, Form
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -293,7 +293,14 @@ async def api_query(q: QueryIn):
 @app.post('/api/chat')
 async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_current_user_optional)):
     r = get_retriever()
-    answer, sources, provider = r.synthesize(req.prompt, top_k=5, max_sentences=6)
+
+    # "Chat theo phạm vi tài liệu": nếu phiên này đã có tài liệu người dùng tải lên,
+    # CHỈ trả lời dựa trên nội dung (các) tài liệu đó — không dùng kho luật chung.
+    if req.sessionId and db.session_has_documents(req.sessionId):
+        scoped_chunks = db.get_session_document_chunks(req.sessionId)
+        answer, sources, provider = r.synthesize_scoped(req.prompt, scoped_chunks, top_k=5, max_sentences=6)
+    else:
+        answer, sources, provider = r.synthesize(req.prompt, top_k=5, max_sentences=6)
 
     # Extract structured data
     hs_code = _extract_hs_code(req.prompt + ' ' + answer)
@@ -311,13 +318,15 @@ async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_curre
     if req.sessionId:
         try:
             timestamp = datetime.now().strftime('%H:%M')
+            # Ưu tiên user_id từ JWT token (đã đăng nhập); fallback sang userId gửi kèm request
+            effective_user_id = user_payload["id"] if user_payload else req.userId
             # Add User Message to SQLite DB
-            db.add_message(req.sessionId, 'user', req.prompt, timestamp)
+            db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
             # Add AI Message to SQLite DB
             db.add_message(
                 req.sessionId, 'ai', answer, timestamp,
                 hs_code=hs_code, taxes=taxes, inspections=inspections,
-                citations=citations, summary_pdf=summary_pdf
+                citations=citations, summary_pdf=summary_pdf, user_id=effective_user_id
             )
         except Exception as db_err:
             print(f"[Warning] Failed to persist chat message to SQLite: {db_err}")
@@ -338,8 +347,9 @@ async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_curre
 # ─── Chat Streaming Endpoint (Server-Sent Events) ──────────────────
 
 @app.post('/api/chat/stream')
-async def api_chat_stream(req: ChatIn):
+async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(get_current_user_optional)):
     r = get_retriever()
+    effective_user_id = user_payload["id"] if user_payload else req.userId
 
     async def event_generator() -> AsyncGenerator[str, None]:
         answer, sources, provider = r.synthesize(req.prompt, top_k=5, max_sentences=6)
@@ -494,11 +504,102 @@ async def delete_session(
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
 ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.webp', '.txt'}
 
+
+def _chunk_text_simple(text: str, chunk_size: int = 1200, overlap: int = 150) -> List[str]:
+    """Chia văn bản dài thành các đoạn ~chunk_size ký tự, có overlap để giữ ngữ cảnh."""
+    text = re.sub(r'\s+', ' ', text).strip()
+    if not text:
+        return []
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        chunk = text[start:end]
+        # cắt tại ranh giới câu/khoảng trắng gần nhất để tránh cắt giữa từ
+        if end < len(text):
+            last_space = chunk.rfind(' ')
+            if last_space > chunk_size * 0.6:
+                chunk = chunk[:last_space]
+                end = start + last_space
+        if chunk.strip():
+            chunks.append(chunk.strip())
+        start = max(end - overlap, start + 1)
+    return chunks
+
+
+def _extract_pdf_text(file_path: Path) -> str:
+    """Trích xuất text từ PDF. Thử pypdf trước (nhanh, đã có sẵn); nếu kết quả rỗng
+    hoặc quá ít ký tự (dấu hiệu pypdf đọc không ra dù PDF có chữ thật), thử lại
+    bằng pdfplumber — thư viện xử lý được nhiều kiểu encode/font nhúng mà pypdf bỏ sót.
+    Nếu cả 2 đều rỗng, khả năng cao đây là PDF dạng ảnh/scan, cần OCR (chưa hỗ trợ).
+    """
+    text_parts = []
+    try:
+        reader = pypdf.PdfReader(str(file_path))
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            text_parts.append(page_text)
+    except Exception as e:
+        print(f"[Upload] pypdf extraction failed for {file_path.name}: {e}")
+
+    combined = "\n".join(text_parts).strip()
+
+    if len(combined) < 30:  # gần như rỗng -> thử phương án dự phòng
+        try:
+            import pdfplumber
+            fallback_parts = []
+            with pdfplumber.open(str(file_path)) as pdf:
+                for page in pdf.pages:
+                    fallback_parts.append(page.extract_text() or "")
+            fallback_text = "\n".join(fallback_parts).strip()
+            if len(fallback_text) > len(combined):
+                print(f"[Upload] pypdf trích được quá ít ({len(combined)} ký tự), "
+                      f"dùng kết quả pdfplumber ({len(fallback_text)} ký tự) cho {file_path.name}.")
+                return fallback_text
+        except ImportError:
+            print("[Upload] pdfplumber chưa được cài (pip install pdfplumber) — bỏ qua phương án dự phòng.")
+        except Exception as e:
+            print(f"[Upload] pdfplumber extraction failed for {file_path.name}: {e}")
+
+    return combined
+
+
+def _process_session_document_for_rag(sessionId: str, filename: str, file_path: Path, ext: str) -> bool:
+    """Trích xuất + chia nhỏ + embed nội dung tài liệu người dùng vừa tải lên trong 1 phiên chat,
+    để phục vụ tính năng 'Chat theo phạm vi tài liệu' (không đụng tới kho luật chung).
+    Chỉ hỗ trợ .pdf và .txt hiện tại. Lỗi ở bước này KHÔNG được làm fail request upload.
+    Trả về True nếu xử lý + lưu chunk thành công, False nếu thất bại."""
+    if not sessionId:
+        return False
+    try:
+        if ext == '.pdf':
+            raw_text = _extract_pdf_text(file_path)
+        elif ext == '.txt':
+            raw_text = file_path.read_text(encoding='utf-8', errors='ignore')
+        else:
+            return False
+
+        chunks = _chunk_text_simple(raw_text)
+        if not chunks:
+            print(f"[Upload] Không trích xuất được nội dung văn bản từ {filename}, bỏ qua scoped-RAG.")
+            return False
+
+        r = get_retriever()
+        embeddings = r.embed_texts(chunks)
+        chunks_with_emb = [{'text': c, 'embedding': e} for c, e in zip(chunks, embeddings)]
+        db.save_session_document_chunks(sessionId, filename, chunks_with_emb)
+        print(f"[Upload] Đã xử lý '{filename}' cho scoped-RAG: {len(chunks)} chunks.")
+        return True
+    except Exception as e:
+        print(f"[Upload] Lỗi xử lý scoped-RAG cho '{filename}': {e}")
+        return False
+
+
 @app.post('/api/upload')
 async def upload_file(
     file: UploadFile = FastAPIFile(...),
-    sessionId: Optional[str] = None,
-    userId: Optional[str] = None,
+    sessionId: Optional[str] = Form(None),
+    userId: Optional[str] = Form(None),
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
     ext = Path(file.filename).suffix.lower()
@@ -529,9 +630,28 @@ async def upload_file(
     # Save to SQLite
     attachment = db.save_attachment(sessionId, effective_user_id, file.filename, size_str, file_type, file_url)
 
+    # Xử lý nội dung file cho tính năng "Chat theo phạm vi tài liệu" (PDF/TXT)
+    scoped_ready = False
+    scoped_error = None
+    if sessionId:
+        if ext in ('.pdf', '.txt'):
+            scoped_ready = _process_session_document_for_rag(sessionId, file.filename, file_path, ext)
+            if not scoped_ready:
+                scoped_error = (
+                    "Không trích xuất được nội dung văn bản từ tệp này (có thể là PDF dạng ảnh/scan "
+                    "không có lớp chữ). Chat sẽ KHÔNG bị giới hạn theo tệp này."
+                )
+        else:
+            scoped_error = (
+                f"Định dạng {ext} chưa hỗ trợ 'Chat theo phạm vi tài liệu'. "
+                f"Hiện chỉ hỗ trợ .pdf và .txt. Chat sẽ KHÔNG bị giới hạn theo tệp này."
+            )
+
     return JSONResponse({
         'success': True,
-        'file': attachment
+        'file': attachment,
+        'scopedRagEnabled': scoped_ready,
+        'scopedRagError': scoped_error,
     })
 
 

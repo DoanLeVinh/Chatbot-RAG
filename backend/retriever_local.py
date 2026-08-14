@@ -399,6 +399,78 @@ class LocalRetriever:
         
         return deduplicated_parents, matched_children
 
+    def _answer_from_parents(self, query: str, parents: list, children: list, max_sentences: int = 6):
+        """Sinh câu trả lời (Gemini hoặc fallback local) từ danh sách parents/children đã có sẵn.
+        Dùng chung cho cả retrieval toàn cục (FAISS) và retrieval theo phạm vi tài liệu người
+        dùng tự tải lên (scoped)."""
+        if GEMINI_API_KEY:
+            gemini_result = _refine_with_gemini(query, parents)
+            if gemini_result and gemini_result.get('answer'):
+                enriched_sources = _build_enriched_sources_from_parents(parents)
+                return gemini_result['answer'], gemini_result.get('sources', enriched_sources), "gemini"
+
+        if parents:
+            answer, sources = format_full_parents_answer(parents, query, max_items=4)
+            if answer:
+                return answer, sources, "local"
+
+        retrieved_for_synth = parents if parents else children
+        summary, sources = synthesize_from_retrieved(
+            self.model, query, retrieved_for_synth, max_sentences=max_sentences
+        )
+        if not summary or summary.strip() == "":
+            answer, srcs = format_snippet_only_answer(retrieved_for_synth)
+            return answer, srcs, "local"
+
+        answer = summary.strip()
+        if answer and not answer.endswith(('.', '!', '?')):
+            answer += '.'
+        enriched = _build_enriched_sources_from_parents(parents) if parents else _build_enriched_sources(children)
+        return answer, enriched, "local"
+
+    def embed_texts(self, texts: list):
+        """Encode danh sách text thành embedding vector (dùng cho tài liệu người dùng tải lên)."""
+        vecs = self.model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+        return [v.tolist() for v in vecs]
+
+    def synthesize_scoped(self, query: str, scoped_chunks: list, top_k: int = 5, max_sentences: int = 6):
+        """Trả lời CHỈ dựa trên các chunk đã embed sẵn của tài liệu người dùng tải lên trong
+        phiên chat hiện tại (không đụng tới FAISS/kho luật chung).
+        scoped_chunks: List[{'text', 'embedding', 'source', 'chunk_index'}]
+        """
+        if not scoped_chunks:
+            return (
+                "Chưa có nội dung tài liệu nào được xử lý trong phiên này để trả lời trong phạm vi tài liệu.",
+                [], "local"
+            )
+
+        q_vec = self.model.encode([query], normalize_embeddings=True, show_progress_bar=False)[0]
+        scored = []
+        for c in scoped_chunks:
+            emb = np.array(c['embedding'], dtype=np.float32)
+            score = float(np.dot(q_vec, emb))
+            scored.append((score, c))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = scored[:top_k]
+
+        parents = [{
+            'source': c.get('source', 'Tài liệu đã tải lên'),
+            'start_index': c.get('chunk_index', 0),
+            'chapter': None,
+            'text': c['text'],
+            'best_child_score': score,
+        } for score, c in top]
+
+        SCOPED_NO_ANSWER_THRESHOLD = 0.30
+        if not top or top[0][0] < SCOPED_NO_ANSWER_THRESHOLD:
+            return (
+                "Tôi không tìm thấy nội dung phù hợp trong (các) tài liệu bạn đã tải lên để trả lời câu hỏi này. "
+                "Vui lòng hỏi cụ thể hơn hoặc kiểm tra lại tài liệu đã đính kèm.",
+                [], "local"
+            )
+
+        return self._answer_from_parents(query, parents, [], max_sentences=max_sentences)
+
     def synthesize(self, query: str, top_k: int = 5, max_sentences: int = 6):
         """Retrieve Parent Documents and synthesize answer with citations."""
         # Sử dụng PDR: search child → trả parent
@@ -429,36 +501,7 @@ class LocalRetriever:
                 "local"
             )
 
-        # --- Thử Gemini trước (nếu có API key) ---
-        if GEMINI_API_KEY:
-            enriched_sources = _build_enriched_sources_from_parents(parents)
-            gemini_result = _refine_with_gemini(query, parents)
-            if gemini_result and gemini_result.get('answer'):
-                return gemini_result['answer'], gemini_result.get('sources', enriched_sources), "gemini"
-
-        # --- Fallback: Local synthesis (khi không có/không gọi được Gemini) ---
-        # Ưu tiên trả về NGUYÊN VĂN trọn các Điều luật liên quan (không cắt câu rời rạc)
-        if parents:
-            answer, sources = format_full_parents_answer(parents, query, max_items=4)
-            if answer:
-                return answer, sources, "local"
-
-        # Fallback thứ 2: extractive synthesis trên children (khi không có parent nào)
-        retrieved_for_synth = parents if parents else children
-        summary, sources = synthesize_from_retrieved(
-            self.model, query, retrieved_for_synth, max_sentences=max_sentences
-        )
-
-        if not summary or summary.strip() == "":
-            answer, srcs = format_snippet_only_answer(retrieved_for_synth)
-            return answer, srcs, "local"
-
-        answer = summary.strip()
-        if answer and not answer.endswith(('.', '!', '?')):
-            answer += '.'
-
-        enriched = _build_enriched_sources_from_parents(parents) if parents else _build_enriched_sources(children)
-        return answer, enriched, "local"
+        return self._answer_from_parents(query, parents, children, max_sentences=max_sentences)
 
 
 def format_snippet_only_answer(retrieved):
