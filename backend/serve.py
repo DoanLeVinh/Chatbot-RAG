@@ -16,6 +16,15 @@ import uvicorn
 from pathlib import Path
 import sys
 import os
+
+# Trên Windows, uvicorn dùng ProactorEventLoop mặc định — event loop này có lỗi đã biết
+# (WinError 64: "The specified network name is no longer available") khi 1 kết nối HTTP
+# bị đóng đột ngột (trình duyệt hủy request, proxy của frontend đóng socket...). Lỗi này
+# không làm sập server hay ảnh hưởng các request khác, nhưng in traceback gây nhiễu log.
+# Chuyển sang SelectorEventLoop để tránh lỗi này hoàn toàn trên Windows.
+if sys.platform == 'win32':
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 import json
 import re
 import uuid
@@ -504,27 +513,103 @@ async def delete_session(
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
 ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.webp', '.txt'}
 
+# Separator dùng để chia nhỏ NỘI DUNG BÊN TRONG 1 Điều luật (khi Điều đó quá dài, vượt
+# chunk_size) — KHÔNG dùng để gộp nhiều Điều khác nhau lại với nhau.
+SESSION_DOC_INNER_SEPARATORS = [
+    r"\n(?=CHƯƠNG\s+[IVXLCDM\d]+)",
+    r"\n(?=Chương\s+[IVXLCDM\d]+)",
+    r"\n(?=Mục\s+\d+)",
+    r"\n(?=PHẦN\s+[IVXLCDM\d]+)",
+    r"\n\n+",
+    r"\n",
+    r"\.\s+",
+    r"\s+",
+]
 
-def _chunk_text_simple(text: str, chunk_size: int = 1200, overlap: int = 150) -> List[str]:
-    """Chia văn bản dài thành các đoạn ~chunk_size ký tự, có overlap để giữ ngữ cảnh."""
-    text = re.sub(r'\s+', ' ', text).strip()
-    if not text:
-        return []
+
+def _split_text_with_regex(text: str, chunk_size: int, chunk_overlap: int, separators: list) -> List[str]:
+    """Bộ tách văn bản đệ quy theo thứ tự ưu tiên separator — dùng để chia nhỏ TIẾP nội
+    dung bên trong 1 Điều luật quá dài (KHÔNG dùng ở bước tách theo Điều, để tránh gộp
+    nhiều Điều khác nhau lại chung 1 đoạn)."""
+    if len(text) <= chunk_size:
+        return [text.strip()] if text.strip() else []
+
+    for sep in separators:
+        splits = re.split(sep, text)
+        if len(splits) > 1:
+            chunks = []
+            current = ""
+            for s in splits:
+                s_clean = s.strip()
+                if not s_clean:
+                    continue
+                if len(current) + len(s_clean) + 1 <= chunk_size:
+                    current = (current + "\n" + s_clean).strip() if current else s_clean
+                else:
+                    if current:
+                        chunks.append(current)
+                    if len(s_clean) > chunk_size:
+                        sub_chunks = _split_text_with_regex(s_clean, chunk_size, chunk_overlap, separators[1:])
+                        chunks.extend(sub_chunks)
+                        current = ""
+                    else:
+                        current = s_clean
+            if current:
+                chunks.append(current)
+            return chunks
+
+    # Fallback cuối cùng: cắt theo ký tự nhưng LUÔN lùi về khoảng trắng gần nhất,
+    # không bao giờ cắt ngang giữa 1 từ (chỉ xảy ra khi văn bản hoàn toàn không có
+    # dấu câu/khoảng trắng nào để tách — trường hợp cực hiếm).
     chunks = []
     start = 0
     while start < len(text):
         end = min(start + chunk_size, len(text))
         chunk = text[start:end]
-        # cắt tại ranh giới câu/khoảng trắng gần nhất để tránh cắt giữa từ
         if end < len(text):
             last_space = chunk.rfind(' ')
-            if last_space > chunk_size * 0.6:
+            if last_space > chunk_size * 0.5:
                 chunk = chunk[:last_space]
                 end = start + last_space
         if chunk.strip():
             chunks.append(chunk.strip())
-        start = max(end - overlap, start + 1)
+        start = max(end - chunk_overlap, start + 1)
     return chunks
+
+
+def _split_by_article_boundaries(text: str, chunk_size: int, chunk_overlap: int) -> List[str]:
+    """Tách văn bản pháp luật theo ranh giới TỪNG Điều — mỗi Điều luôn là 1 chunk RIÊNG,
+    KHÔNG bao giờ gộp 2 Điều khác nhau vào chung 1 đoạn (khác hành vi 'đóng gói nhiều
+    mảnh nhỏ cho đầy chunk_size' trước đây, vốn gây ra lỗi 1 đoạn trả lời dính nội dung
+    của 2 Điều luật khác nhau). Nếu 1 Điều tự nó đã dài hơn chunk_size, mới chia nhỏ tiếp
+    NỘI BỘ Điều đó (không lấn sang Điều bên cạnh)."""
+    pieces = re.split(r"\n(?=Điều\s+\d+)", text)
+    pieces = [p.strip() for p in pieces if p.strip()]
+
+    if len(pieces) <= 1:
+        # Văn bản không có cấu trúc "Điều X" nào tách được (ví dụ hợp đồng, công văn...)
+        # -> rơi về tách theo Chương/Mục/câu như bình thường.
+        return _split_text_with_regex(text, chunk_size, chunk_overlap, SESSION_DOC_INNER_SEPARATORS)
+
+    chunks = []
+    for piece in pieces:
+        if len(piece) <= chunk_size:
+            chunks.append(piece)
+        else:
+            # 1 Điều đơn lẻ quá dài -> chia nhỏ NỘI BỘ điều này, không dồn sang Điều khác
+            chunks.extend(_split_text_with_regex(piece, chunk_size, chunk_overlap, SESSION_DOC_INNER_SEPARATORS))
+    return chunks
+
+
+def _chunk_text_simple(text: str, chunk_size: int = 1800, overlap: int = 200) -> List[str]:
+    """Chia văn bản người dùng tải lên thành các đoạn theo ranh giới Điều luật (không cắt
+    ngang câu/Điều, không gộp 2 Điều khác nhau vào chung 1 đoạn). chunk_size mặc định
+    1800 ký tự — đủ chứa trọn hầu hết 1 Điều luật, tương đồng PARENT_CHUNK_SIZE=2000 mà
+    kho admin đang dùng."""
+    text = re.sub(r'[ \t]+', ' ', text).strip()
+    if not text:
+        return []
+    return _split_by_article_boundaries(text, chunk_size, overlap)
 
 
 def _extract_pdf_text(file_path: Path) -> str:
