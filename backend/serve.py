@@ -16,6 +16,7 @@ import uvicorn
 from pathlib import Path
 import sys
 import os
+import shutil
 
 # Trên Windows, uvicorn dùng ProactorEventLoop mặc định — event loop này có lỗi đã biết
 # (WinError 64: "The specified network name is no longer available") khi 1 kết nối HTTP
@@ -28,8 +29,8 @@ if sys.platform == 'win32':
 import json
 import re
 import uuid
-import shutil
-import asyncio
+import markdown
+import pypdf
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -139,8 +140,7 @@ def _extract_tax_info(text: str) -> list:
 def _extract_inspection_info(text: str) -> Optional[dict]:
     """Extract inspection/regulation info from AI response text."""
     text_lower = text.lower()
-    inspection_keywords = ['kiểm tra chuyên ngành', 'kiểm tra chất lượng', 'giấy phép',
-                          'hợp quy', 'chứng nhận', 'quản lý chuyên ngành']
+    inspection_keywords = ['kiểm tra chuyên ngành đối với', 'phải có giấy phép', 'kiểm tra chất lượng nhà nước']
     for kw in inspection_keywords:
         if kw in text_lower:
             sentences = text.split('.')
@@ -631,7 +631,7 @@ def _extract_pdf_text(file_path: Path) -> str:
 
     if len(combined) < 30:  # gần như rỗng -> thử phương án dự phòng
         try:
-            import pdfplumber
+            import pdfplumber # type: ignore
             fallback_parts = []
             with pdfplumber.open(str(file_path)) as pdf:
                 for page in pdf.pages:
@@ -880,9 +880,16 @@ async def export_pdf(req: PdfExportIn):
             border-radius: 0 8px 8px 0;
             font-size: 14.5px;
             color: #334155;
-            white-space: pre-wrap;
             margin-bottom: 24px;
+            line-height: 1.6;
         }}
+        .content-box p {{ margin-bottom: 12px; }}
+        .content-box p:last-child {{ margin-bottom: 0; }}
+        .content-box ul {{ margin-top: 0; margin-bottom: 12px; padding-left: 20px; }}
+        .content-box li {{ margin-bottom: 4px; }}
+        .content-box strong {{ font-weight: 700; color: #0f172a; }}
+        .content-box h1, .content-box h2, .content-box h3 {{ color: #00236f; margin-top: 16px; margin-bottom: 8px; }}
+        .content-box h3 {{ font-size: 15px; }}
         .section-box {{
             margin-top: 24px;
             padding-top: 16px;
@@ -982,7 +989,7 @@ async def export_pdf(req: PdfExportIn):
         <h1 class="main-title">{title}</h1>
         {f'<div style="margin-bottom: 12px;"><span style="background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 13px;">🏷️ Mã HS xác định: {req.hsCode}</span></div>' if req.hsCode else ''}
 
-        <div class="content-box">{content}</div>
+        <div class="content-box">{markdown.markdown(content) if content else ''}</div>
 
         {taxes_html}
         {citations_html}
@@ -1259,9 +1266,15 @@ async def homepage(request: Request):
 
 @app.get('/{path:path}')
 async def spa_fallback(request: Request, path: str):
-    if path.startswith(('api/', 'assets/', 'frontend/', 'uploads/')):
+    if path.startswith(('api/', 'uploads/')):
         return JSONResponse({'error': 'Not Found'}, status_code=404)
-    index_file = Path.cwd() / 'frontend' / 'dist' / 'index.html'
+        
+    dist_dir = Path.cwd() / 'frontend' / 'dist'
+    file_path = dist_dir / path
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(file_path)
+        
+    index_file = dist_dir / 'index.html'
     if not index_file.exists():
         index_file = Path.cwd() / 'frontend' / 'index.html'
     if index_file.exists():
