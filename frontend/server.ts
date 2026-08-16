@@ -16,39 +16,58 @@ async function startServer() {
 
 
   // Proxy ALL /api/* routes to Python FastAPI Backend (RAG + Gemini)
-  // This ensures /api/chat goes through the full RAG pipeline (not a Node.js hardcode)
-  app.use(["/api/admin", "/api/auth", "/api/sessions", "/api/export", "/api/query", "/api/chat", "/api/upload", "/api/settings", "/api/citations"], async (req: any, res: any) => {
+  app.use("/api", async (req: any, res: any) => {
     try {
       const url = `http://127.0.0.1:8000${req.originalUrl}`;
       const isMultipart = req.headers['content-type']?.includes('multipart/form-data');
       
-      const headers: any = {};
+      const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
-        if (!['host', 'content-length', 'connection'].includes(key.toLowerCase()) && value) {
+        if (!['host', 'content-length', 'connection', 'expect'].includes(key.toLowerCase()) && typeof value === 'string') {
           headers[key] = value;
         }
       }
-      if (!headers['content-type'] && !isMultipart) {
-        headers['content-type'] = 'application/json';
-      }
 
-      let fetchOptions: any = {
+      let fetchOptions: RequestInit = {
         method: req.method,
         headers,
       };
 
-      if (!['GET', 'HEAD'].includes(req.method)) {
+      if (!['GET', 'HEAD'].includes(req.method.toUpperCase())) {
         if (isMultipart) {
-          fetchOptions.duplex = 'half';
+          (fetchOptions as any).duplex = 'half';
           fetchOptions.body = req;
         } else {
-          fetchOptions.body = JSON.stringify(req.body);
+          headers['content-type'] = 'application/json';
+          fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
         }
       }
 
       const response = await fetch(url, fetchOptions);
       const contentType = response.headers.get('content-type') || '';
       
+      if (contentType.includes('text/event-stream')) {
+        res.writeHead(response.status, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        });
+        if (response.body) {
+          const reader = response.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              res.end();
+              break;
+            }
+            res.write(value);
+          }
+        } else {
+          res.end();
+        }
+        return;
+      }
+
       if (contentType.includes('application/json')) {
         const data = await response.json();
         res.status(response.status).json(data);
