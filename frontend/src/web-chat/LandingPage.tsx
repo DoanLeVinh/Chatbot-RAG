@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import { Header } from '../shared/components/Header';
-import { WaterRippleEffect } from '../shared/components/WaterRippleEffect';
-
 interface LandingPageProps {
   onStartChat: () => void;
   onLoginClick: () => void;
@@ -54,10 +52,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-white text-slate-900 font-sans relative overflow-x-hidden selection:bg-blue-100 selection:text-blue-700">
-      {/* Interactive Water Ripple Canvas Layer */}
-      <WaterRippleEffect interactive={true} opacity={0.3} />
-
+    <div className="min-h-screen flex flex-col bg-white text-slate-900 font-sans relative overflow-x-hidden selection:bg-blue-100 selection:text-blue-700">
       {/* Top Header */}
       <Header
         onLoginClick={onLoginClick}
@@ -68,7 +63,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       />
 
       {/* Main Hero Section */}
-      <main className="flex-1 flex flex-col justify-center px-4 md:px-8 py-12 md:py-20 relative z-10">
+      <main className="flex-1 flex flex-col justify-center px-4 md:px-8 py-6 md:py-10 relative z-10">
         <div className="max-w-7xl w-full mx-auto grid md:grid-cols-2 gap-8 md:gap-12 items-center">
           
           {/* Left Hero Text Column */}
@@ -89,7 +84,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {/* Headline */}
             <motion.div variants={itemVariants}>
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.15] tracking-tight max-w-2xl">
-                Tra Cứu Luật Hải Quan Chính Xác Tuyệt Đối.
+                Tra Cứu Luật Hải Quan Chính Xác & Tin Cậy.
               </h1>
             </motion.div>
 
@@ -165,12 +160,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
                   {/* Citation Source Chips */}
                   <div className="flex gap-2 mt-1 flex-wrap">
-                    <span className="inline-flex items-center gap-1.5 bg-blue-100 text-slate-600 px-2 py-1 rounded text-[11px] font-mono border border-blue-200 hover:bg-[#d2d9f4] transition-colors cursor-pointer">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="inline-flex items-center gap-1.5 bg-blue-600 text-white px-2.5 py-1 rounded text-[11px] font-mono hover:bg-blue-700 shadow-sm transition-colors cursor-pointer font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-300" />
                       Nghị định 122/2016/NĐ-CP
                     </span>
-                    <span className="inline-flex items-center gap-1.5 bg-blue-100 text-slate-600 px-2 py-1 rounded text-[11px] font-mono border border-blue-200 hover:bg-[#d2d9f4] transition-colors cursor-pointer">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="inline-flex items-center gap-1.5 bg-blue-600 text-white px-2.5 py-1 rounded text-[11px] font-mono hover:bg-blue-700 shadow-sm transition-colors cursor-pointer font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-300" />
                       Thông tư 65/2017/TT-BTC
                     </span>
                   </div>
