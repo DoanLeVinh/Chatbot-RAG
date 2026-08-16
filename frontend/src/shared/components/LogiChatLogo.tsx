@@ -3,7 +3,7 @@ import React from 'react';
 interface LogiChatLogoProps {
   className?: string;
   iconOnly?: boolean;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
 export const LogiChatLogo: React.FC<LogiChatLogoProps> = ({
@@ -12,50 +12,36 @@ export const LogiChatLogo: React.FC<LogiChatLogoProps> = ({
   size = 'md',
 }) => {
   const iconSizeClass = {
-    sm: 'w-7 h-7',
-    md: 'w-9 h-9',
-    lg: 'w-12 h-12',
+    sm: 'w-8 h-8 rounded-lg',
+    md: 'w-10 h-10 rounded-xl',
+    lg: 'w-14 h-14 rounded-2xl',
+    xl: 'w-24 h-24 rounded-3xl',
   }[size];
 
   const textSizeClass = {
     sm: 'text-lg',
     md: 'text-2xl',
     lg: 'text-3xl',
+    xl: 'text-4xl',
   }[size];
 
   return (
-    <div className={`flex items-center gap-2.5 select-none ${className}`}>
-      {/* SVG Icon: Speech bubble with Scales of Justice inside */}
-      <div className={`relative flex items-center justify-center ${iconSizeClass}`}>
-        <svg
-          viewBox="0 0 100 100"
-          className="w-full h-full text-blue-600"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          {/* Speech bubble frame */}
-          <path
-            d="M50 12 C26.8 12 8 28.8 8 49.5 C8 62.4 15.2 73.8 26.5 80.5 L20 92 L34.5 85.5 C39.3 86.8 44.5 87 50 87 C73.2 87 92 70.2 92 49.5 C92 28.8 73.2 12 50 12 Z"
-            stroke="currentColor"
-            strokeWidth="6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="#faf8ff"
-          />
-          {/* Scales Center Pillar */}
-          <path d="M50 32 L50 64 M40 64 L60 64" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
-          {/* Scales Top Beam */}
-          <path d="M28 38 L72 38" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
-          {/* Left Pan Chains & Container */}
-          <path d="M28 38 L22 52 L34 52 Z" fill="currentColor" stroke="currentColor" strokeWidth="2" />
-          {/* Right Pan Chains & Container */}
-          <path d="M72 38 L66 52 L78 52 Z" fill="currentColor" stroke="currentColor" strokeWidth="2" />
-        </svg>
+    <div className={`flex items-center gap-3 select-none ${className}`}>
+      {/* Liquid Glass Logo Wrapper */}
+      <div className={`relative flex items-center justify-center bg-white shadow-sm overflow-hidden flex-shrink-0 ${iconSizeClass}`}>
+        <img
+          src="/logo.jpg"
+          alt="LogiChat Maritime Logo"
+          className="w-full h-full object-cover animate-float-water"
+          draggable="false"
+        />
+        {/* Glass reflection layer */}
+        <div className="absolute inset-0 border border-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] pointer-events-none rounded-inherit"></div>
       </div>
 
       {!iconOnly && (
-        <span className={`font-bold tracking-tight text-blue-600 ${textSizeClass}`}>
-          LogiChat
+        <span className={`font-semibold tracking-tight text-slate-800 ${textSizeClass}`}>
+          Logi<span className="text-blue-600 font-bold">Chat</span>
         </span>
       )}
     </div>
