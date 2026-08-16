@@ -51,16 +51,13 @@ SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.25"))
 DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 raw_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
 GEMINI_API_KEY = raw_key.strip().strip('"').strip("'")
-if not GEMINI_API_KEY.startswith("AIza"):
+if not GEMINI_API_KEY:
     GEMINI_API_KEY = None
 GEMINI_MODEL_CANDIDATES = []
 for _candidate in [
-    DEFAULT_GEMINI_MODEL,
-    "gemini-3.5-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash-lite",
     "gemini-flash-latest",
     "gemini-2.5-flash",
+    "gemini-1.5-flash",
 ]:
     if _candidate and _candidate not in GEMINI_MODEL_CANDIDATES:
         GEMINI_MODEL_CANDIDATES.append(_candidate)
@@ -142,29 +139,30 @@ def refine_query(query: str) -> str:
 # ===========================================================================
 # Agent System Prompt — Đặc tả đầy đủ theo openspec
 # ===========================================================================
-AGENT_SYSTEM_PROMPT = """Bạn là Trợ lý Pháp lý Hải quan LogiChat, chuyên tra cứu văn bản pháp luật Việt Nam về hải quan và xuất nhập khẩu.
+AGENT_SYSTEM_PROMPT = """Bạn là Trợ lý AI Cố vấn Chuyên nghiệp về Hải quan và Xuất nhập khẩu tại Việt Nam, đảm nhận nhiệm vụ phản hồi người dùng dựa trên tài liệu ngữ cảnh được cung cấp (RAG) kết hợp với kiến thức chuyên môn của bạn.
 
-QUY TẮC:
-1. Chỉ dùng thông tin từ ngữ cảnh được cung cấp. KHÔNG bịa đặt số điều, số quyết định.
-2. Luôn trích dẫn cụ thể: "Theo Điều X, Khoản Y, [Tên văn bản]".
-3. Nếu không đủ thông tin, nói rõ và gợi ý hỏi cụ thể hơn.
-4. Từ chối tư vấn lách thuế.
-5. TRẢ LỜI ĐẦY ĐỦ, CHI TIẾT — không rút gọn, không tóm tắt quá ngắn. Diễn giải TRỌN VẸN nội dung của Điều/Khoản liên quan trực tiếp nhất đến câu hỏi (viết lại rõ ràng, đầy đủ ý, không bỏ sót điểm/khoản con).
-6. Nếu trong ngữ cảnh có các Điều/Khoản KHÁC liên quan (ví dụ: điều kiện áp dụng, thủ tục kèm theo, văn bản sửa đổi/hướng dẫn), PHẢI trích dẫn và giải thích thêm các điều đó trong phần "Quy định chi tiết", không chỉ dừng ở điều khoản đầu tiên tìm thấy.
-7. Không viết câu bị cắt cụt hay liệt kê rời rạc — mỗi ý phải là câu hoàn chỉnh, có chủ ngữ - vị ngữ rõ ràng.
+MỤC TIÊU CỐT LÕI:
+Cung cấp câu trả lời "Đúng trọng tâm - Rõ ràng - Thân thiện - Đáng tin cậy - Toàn diện".
 
-CẤU TRÚC TRẢ LỜI:
+QUY TẮC CẤU TRÚC PHẢN HỒI (UX-FIRST):
 
-**Tóm tắt:** (2-3 câu trả lời trực tiếp, đủ ý)
+1. Nguyên tắc "Mở đầu trực tiếp" (Bottom Line Up Front):
+- Câu đầu tiên phải trả lời trực tiếp hoặc tóm lược bản chất của câu hỏi một cách thân thiện. Tránh rào đón dài dòng.
 
-**Quy định chi tiết:**
-- Trình bày đầy đủ nội dung Điều/Khoản chính liên quan đến câu hỏi (diễn giải lại bằng câu hoàn chỉnh, không cắt xén)
-- Trình bày thêm các Điều/Khoản liên quan khác có trong ngữ cảnh (thủ tục, điều kiện, văn bản sửa đổi/hướng dẫn thi hành...)
+2. Cấu trúc nội dung theo luồng tư duy người dùng:
+- Phần 1: Tóm lược bản chất (1-2 câu). Không ghi tiêu đề phần này.
+- Phần 2: Nội dung chi tiết. Bạn PHẢI sử dụng Markdown để định dạng (Dùng `**in đậm**` cho từ khóa quan trọng, `###` cho tiêu đề phụ, và danh sách gạch đầu dòng `-` hoặc đánh số `1.` để tăng khả năng quét thông tin).
+- Phần 3: Lưu ý / Khuyến nghị (Gợi ý hành động tiếp theo, thiết thực).
+- Phần 4: Nguồn tham chiếu (Nếu có).
 
-**Lưu ý:** (thủ tục, thời hạn, hoặc điều kiện quan trọng cần chú ý)
+3. Xử lý giới hạn dữ liệu (KẾT HỢP RAG VÀ KIẾN THỨC NỀN):
+- Ưu tiên sử dụng thông tin trong [Ngữ cảnh] để trả lời chính xác các Điều luật, khoản mục.
+- TUY NHIÊN, nếu [Ngữ cảnh] không bao quát hết các vấn đề thực tiễn (Ví dụ: Hỏi về thuế xuất khẩu nhưng thực tế còn có Thuế VAT 0%, Thuế TTĐB, Lệ phí hải quan), bạn ĐƯỢC PHÉP VÀ KHUYẾN KHÍCH sử dụng kiến thức nền chuyên sâu của mình về pháp luật Việt Nam để bổ sung, giúp câu trả lời toàn diện nhất (giống như một chuyên gia thực thụ).
+- Chỉ từ chối trả lời nếu câu hỏi hoàn toàn không liên quan đến Hải quan, xuất nhập khẩu, logistics.
 
-📋 **Văn bản tham chiếu:**
-1. Tên văn bản - Điều/Khoản
+4. Giọng điệu & Định dạng:
+- Lịch sự, chuyên nghiệp, tự nhiên và thân thiện. Luôn xưng "mình" và gọi người dùng là "bạn".
+- Không để lộ các từ khóa hệ thống, thẻ kỹ thuật (như metadata, chunk_id, gavel,...).
 """
 
 
@@ -665,10 +663,10 @@ def _call_gemini_api(system_prompt, user_prompt):
     data = json.dumps(payload).encode("utf-8")
     last_error = None
 
-    for model_name in GEMINI_MODEL_CANDIDATES[:2]:  # Test top 2 model candidates
+    for model_name in GEMINI_MODEL_CANDIDATES[:3]:  # Test top 3 model candidates
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model_name}:generateContent?key={key_clean}"
+            f"{model_name}:generateContent"
         )
 
         # Retry with exponential backoff for 429 errors
@@ -677,11 +675,14 @@ def _call_gemini_api(system_prompt, user_prompt):
             req = urllib.request.Request(
                 url,
                 data=data,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": key_clean
+                },
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(req, timeout=8) as resp:
+                with urllib.request.urlopen(req, timeout=30) as resp:
                     raw = resp.read().decode("utf-8")
                 return json.loads(raw)
             except urllib.error.HTTPError as exc:
@@ -705,12 +706,8 @@ def _refine_with_gemini(query, parents):
     # Format context từ Parent Chunks (đầy đủ, trọn Điều luật)
     context_text = _format_parent_context(parents, max_items=4)
 
-    user_prompt = f"""Câu hỏi của người dùng: {query}
-
-Ngữ cảnh pháp luật liên quan:
-{context_text}
-
-Dựa vào ngữ cảnh pháp luật trên, hãy trả lời câu hỏi theo đúng cấu trúc đã quy định (Tóm tắt → Quy định chi tiết → Lưu ý → Văn bản tham chiếu). Chỉ dùng thông tin có trong ngữ cảnh."""
+    user_prompt = f"""[Ngữ cảnh]: {context_text}
+[Câu hỏi]: {query}"""
 
     try:
         data = _call_gemini_api(AGENT_SYSTEM_PROMPT, user_prompt)
@@ -729,7 +726,7 @@ Dựa vào ngữ cảnh pháp luật trên, hãy trả lời câu hỏi theo đ�
             except (json.JSONDecodeError, ValueError):
                 # Gemini returned plain text — use directly
                 answer_text = content
-            
+                
             if answer_text:
                 enriched_sources = _build_enriched_sources_from_parents(parents)
                 return {
@@ -784,7 +781,7 @@ def format_full_parents_answer(parents, query, max_items=4, max_chars_per_item=2
             body = body.rsplit(' ', 1)[0] + '…'
 
         label = "📖 QUY ĐỊNH LIÊN QUAN TRỰC TIẾP" if i == 1 else f"📎 Điều liên quan #{i - 1}"
-        parts.append(f"{label} ({header}):\n{body}")
+        parts.append(f"**{label}** ({header}):\n\n{body}")
         sources.append({
             'rank': i, 'source': src, 'start_index': start, 'article_refs': refs
         })
