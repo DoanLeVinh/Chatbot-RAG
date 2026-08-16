@@ -1,6 +1,8 @@
 import React from 'react';
 import { ActiveScreen, ChatSession } from '../types';
 import { LogiChatLogo } from './LogiChatLogo';
+import { RippleButton } from './RippleButton';
+import { ClockCounterClockwise, Calendar, CalendarBlank, Plus, X, Trash, Gear, SignOut } from '@phosphor-icons/react';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -96,8 +98,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }`}
       >
         {/* Icon */}
-        <span className="material-symbols-outlined text-[18px] shrink-0">
-          {icon}
+        <span className="shrink-0 flex items-center justify-center">
+          {icon === 'history' && <ClockCounterClockwise size={20} weight="regular" />}
+          {icon === 'calendar_today' && <Calendar size={20} weight="regular" />}
+          {icon === 'date_range' && <CalendarBlank size={20} weight="regular" />}
         </span>
 
         {/* Title */}
@@ -114,16 +118,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title="Xóa hội thoại"
           className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
         >
-          <span className="material-symbols-outlined text-[17px]">
-            delete
-          </span>
+          <Trash size={18} weight="fill" />
         </button>
       </li>
     );
   };
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-[#d2d9f4] p-4 border-r border-blue-200 w-[280px]">
+    <div className="flex flex-col h-full bg-surface-bright p-4 border-r border-slate-200/60 w-[280px]">
 
       {/* Brand Header */}
       <div className="flex items-center justify-between mb-5 px-1 pt-1">
@@ -149,26 +151,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={onCloseMobile}
           className="md:hidden text-slate-600 hover:text-blue-600 p-1"
         >
-          <span className="material-symbols-outlined text-xl">
-            close
-          </span>
+          <X size={24} weight="regular" />
         </button>
       </div>
 
       {/* New Chat */}
-      <button
-        onClick={() => {
-          onNewChat();
-          onCloseMobile();
-        }}
-        className="w-full bg-slate-900 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 mb-4 hover:bg-[#1e293b] transition-all shadow-[0_4px_12px_rgba(19,27,46,0.1)] active:scale-[0.98] text-sm"
-      >
-        <span className="material-symbols-outlined text-[18px]">
-          add
-        </span>
-
-        New Chat
-      </button>
+      <div className="mb-4">
+        <RippleButton
+          variant="primary"
+          onClick={() => {
+            onNewChat();
+            onCloseMobile();
+          }}
+          className="w-full font-semibold py-3 px-4 rounded-2xl flex items-center justify-center gap-2 shadow-[0_8px_20px_-8px_rgba(37,99,235,0.4)] transition-all"
+        >
+          <Plus size={20} weight="bold" />
+          Tạo Cuộc Hỏi Đáp Mới
+        </RippleButton>
+      </div>
 
       {/* Navigation & Session Groups */}
       <div className="flex-1 overflow-y-auto pr-1 space-y-4">
@@ -186,9 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 : 'text-slate-600 hover:bg-blue-100 hover:text-blue-600'
             }`}
           >
-            <span className="material-symbols-outlined text-[18px]">
-              history
-            </span>
+            <ClockCounterClockwise size={20} weight="regular" />
 
             <span className="truncate">
               Lịch sử hội thoại
@@ -270,9 +268,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }}
           className="w-full text-slate-600 hover:bg-blue-100 hover:text-blue-600 rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all font-medium"
         >
-          <span className="material-symbols-outlined text-[18px]">
-            settings
-          </span>
+          <Gear size={20} weight="regular" />
 
           Cài đặt
         </button>
@@ -286,9 +282,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }}
             className="w-full text-[#e11d48] hover:bg-[#ffe4e6] hover:text-[#be123c] rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all font-medium mt-1"
           >
-            <span className="material-symbols-outlined text-[18px]">
-              logout
-            </span>
+            <SignOut size={20} weight="regular" />
 
             Đăng xuất
           </button>
