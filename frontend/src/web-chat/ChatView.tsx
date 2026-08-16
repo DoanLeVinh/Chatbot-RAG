@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { ChatSession, ChatMessage } from '../shared/types';
+import { RippleButton } from '../shared/components/RippleButton';
+import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor } from '@phosphor-icons/react';
 
 interface ChatViewProps {
   session: ChatSession;
@@ -63,16 +66,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-screen bg-blue-50 relative overflow-hidden w-full">
+    <div className="flex-1 flex flex-col h-screen bg-surface relative overflow-hidden w-full">
       {/* Desktop & Mobile Top Bar */}
-      <header className="flex justify-between items-center h-16 px-4 md:px-6 w-full sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-blue-200 shrink-0">
+      <header className="flex justify-between items-center h-16 px-4 md:px-6 w-full sticky top-0 z-20 liquid-glass border-b border-blue-200/50 shrink-0">
         <div className="flex items-center gap-2 overflow-hidden">
           <button
             onClick={onOpenMobileSidebar}
             className="md:hidden text-slate-600 hover:text-blue-600 p-1.5 rounded-lg hover:bg-[blue-50]"
             title="Mở menu history"
           >
-            <span className="material-symbols-outlined text-2xl">menu</span>
+            <List size={24} weight="regular" />
           </button>
           <h1 className="text-sm md:text-base font-bold text-blue-600 truncate">
             {session.title || 'Hỏi đáp Hải quan'}
@@ -88,24 +91,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 : 'bg-white text-slate-500 border-blue-200 hover:bg-[blue-50] hover:text-blue-600'
             }`}
           >
-            <span className="material-symbols-outlined text-[18px]">
-              library_books
-            </span>
+            <BookBookmark size={18} weight="fill" />
             <span className="hidden sm:inline">Nguồn tham khảo</span>
           </button>
         </div>
       </header>
 
-      {/* Main Chat Scroll Container */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 flex flex-col items-center">
-        <div className="w-full max-w-[800px] flex flex-col gap-6">
+      {/* Scrollable Chat Area */}
+      <div className="flex-1 overflow-y-auto relative z-10 w-full" id="chat-container">
+        <div className="max-w-[760px] mx-auto px-4 pt-6 pb-6 w-full min-h-full">
+          <div className="space-y-6">
           
           {/* System Data Context Banner */}
           <div className="flex justify-center mb-1">
             <span className="bg-[blue-50] text-slate-600 text-xs font-semibold px-3.5 py-1 rounded-full border border-blue-200/50 flex items-center gap-1.5 shadow-2xs">
-              <span className="material-symbols-outlined text-sm text-emerald-600">
-                verified_user
-              </span>
+              <ShieldCheck size={16} weight="fill" className="text-emerald-600" />
               Dữ liệu pháp luật được cập nhật đến: 15/10/2023
             </span>
           </div>
@@ -117,11 +117,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
             if (isUser) {
               return (
                 <div key={msg.id} className="flex gap-3 max-w-[85%] ml-auto flex-row-reverse">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 text-slate-600 flex items-center justify-center shrink-0 shadow-2xs">
-                    <span className="material-symbols-outlined text-sm">person</span>
+                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 shadow-sm border border-white">
+                    <User size={16} weight="bold" />
                   </div>
-                  <div className="bg-blue-600 text-white rounded-2xl rounded-tr-none p-4 shadow-sm text-sm sm:text-base leading-relaxed">
-                    <p>{msg.text}</p>
+                  <div className="bg-primary text-white rounded-[1.5rem] rounded-tr-sm px-5 py-3.5 shadow-sm text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
+                    {msg.text}
                   </div>
                 </div>
               );
@@ -130,13 +130,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
             // AI Response Message
             return (
               <div key={msg.id} className="flex gap-3 max-w-[95%] sm:max-w-[88%]">
-                <div className="w-8 h-8 rounded-full bg-blue-700 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
-                  <span className="material-symbols-outlined text-sm">gavel</span>
+                <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shrink-0 mt-0.5 shadow-sm border border-blue-200">
+                  <Anchor size={16} weight="fill" />
                 </div>
 
-                <div className="bg-white border border-blue-200 rounded-2xl rounded-tl-none p-4 md:p-5 text-slate-900 shadow-xs text-sm sm:text-base leading-relaxed space-y-4">
+                <div className="bg-white border border-slate-200/60 rounded-[1.5rem] rounded-tl-sm p-5 md:p-6 text-slate-900 shadow-sm text-sm sm:text-base leading-relaxed space-y-4">
                   {/* Text Main */}
-                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                  <div className="text-sm sm:text-base leading-relaxed text-slate-800 whitespace-pre-wrap">
+                    <ReactMarkdown
+                      components={{
+                        p: ({node, ...props}) => <p className="mb-3 last:mb-0" {...props} />,
+                        strong: ({node, ...props}) => <strong className="font-bold text-slate-900" {...props} />,
+                        ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-3 space-y-1.5" {...props} />,
+                        ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-3 space-y-1.5" {...props} />,
+                        li: ({node, ...props}) => <li className="text-slate-700" {...props} />,
+                        h1: ({node, ...props}) => <h1 className="text-lg font-bold text-slate-900 mb-2 mt-4" {...props} />,
+                        h2: ({node, ...props}) => <h2 className="text-base font-bold text-slate-900 mb-2 mt-3" {...props} />,
+                        h3: ({node, ...props}) => <h3 className="text-sm font-bold text-slate-900 mb-2 mt-3" {...props} />,
+                        blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-400 pl-3 italic text-slate-600 bg-blue-50 py-1 pr-2 rounded-r" {...props} />,
+                      }}
+                    >
+                      {msg.text}
+                    </ReactMarkdown>
+                  </div>
 
                   {/* Taxes Breakdown if available */}
                   {msg.taxes && msg.taxes.length > 0 && (
@@ -150,9 +166,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             {t.citationCode && (
                               <button
                                 onClick={() => onCitationClick(t.citationCode!)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-100 text-slate-900 text-[10px] font-bold uppercase rounded hover:bg-blue-200 transition-colors cursor-pointer border border-blue-200/50"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-600 text-white text-[10px] font-bold uppercase rounded hover:bg-blue-700 transition-colors cursor-pointer border border-blue-700/50 shadow-sm"
                               >
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-300" />
                                 {t.citationCode}
                               </button>
                             )}
@@ -171,9 +187,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         {msg.inspections.citationCode && (
                           <button
                             onClick={() => onCitationClick(msg.inspections!.citationCode!)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-100 text-slate-900 text-[10px] font-bold uppercase rounded hover:bg-blue-200 transition-colors cursor-pointer border border-blue-200/50"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-600 text-white text-[10px] font-bold uppercase rounded hover:bg-blue-700 transition-colors cursor-pointer border border-blue-700/50 shadow-sm"
                           >
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-300" />
                             {msg.inspections.citationCode}
                           </button>
                         )}
@@ -188,9 +204,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         onClick={() => onOpenPdfModal(msg)}
                         className="text-xs sm:text-sm text-blue-600 font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-[18px]">
-                          download
-                        </span>
+                        <Download size={18} weight="bold" />
                         {msg.summaryPdf.title}
                       </button>
                     </div>
@@ -203,12 +217,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {/* Generating Loading State */}
           {isGenerating && (
             <div className="flex gap-3 max-w-[85%]">
-              <div className="w-8 h-8 rounded-full bg-blue-700 text-white flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-sm animate-spin">
-                  sync
-                </span>
+              <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shrink-0 shadow-sm">
+                <Spinner size={16} weight="bold" className="animate-spin" />
               </div>
-              <div className="bg-white border border-blue-200 rounded-2xl rounded-tl-none p-4 flex gap-1.5 items-center">
+              <div className="bg-white border border-slate-200/60 rounded-[1.5rem] rounded-tl-sm px-5 py-4 flex gap-1.5 items-center shadow-sm">
                 <div className="w-2 h-2 rounded-full bg-blue-600 animate-bounce" />
                 <div
                   className="w-2 h-2 rounded-full bg-blue-600 animate-bounce"
@@ -221,31 +233,51 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
             </div>
           )}
-
           <div ref={chatEndRef} />
+          </div>
         </div>
       </div>
 
       {/* Static Bottom Input Bar */}
-      <div className="w-full bg-white border-t border-blue-200 pt-4 pb-4 px-4 shrink-0 z-20">
-        <div className="max-w-[760px] mx-auto">
+      <div className="w-full bg-slate-50/50 pt-2 pb-4 px-4 shrink-0 z-20 pointer-events-none border-t border-slate-200/50 shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
+        <div className="max-w-[760px] mx-auto pointer-events-auto">
           {/* File attachment preview badge */}
           {attachedFile && (
             <div className="mb-2 inline-flex items-center gap-2 bg-blue-200 text-blue-600 px-3 py-1 rounded-lg text-xs font-semibold">
-              <span className="material-symbols-outlined text-sm">attach_file</span>
+              <Paperclip size={14} weight="bold" />
               <span className="truncate max-w-[200px]">{attachedFile.name}</span>
               <button
                 onClick={() => setAttachedFile(null)}
                 className="hover:text-red-600 font-bold ml-1"
+                title="Xóa tệp"
               >
                 ×
               </button>
             </div>
           )}
 
+          {/* Prompt Suggestions when chat is empty */}
+          {session.messages.length === 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {[
+                "Thuế suất HS 8542.31?",
+                "Biểu thuế EVFTA năm nay?",
+                "Quy trình xin C/O form E?"
+              ].map((suggestion, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setInputText(suggestion)}
+                  className="bg-white/90 backdrop-blur-sm border border-blue-200 text-blue-700 text-xs sm:text-sm px-3 py-1.5 rounded-full hover:bg-blue-50 transition-colors shadow-sm cursor-pointer font-medium"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
+
           <form
             onSubmit={handleInputSubmit}
-            className="relative bg-white border-2 border-blue-200 rounded-2xl shadow-lg focus-within:border-blue-600 transition-all flex items-end p-2 gap-2"
+            className="relative liquid-glass rounded-[2rem] shadow-[0_8px_30px_rgba(0,35,111,0.08)] focus-within:shadow-[0_8px_30px_rgba(0,35,111,0.15)] focus-within:border-blue-300 transition-all flex items-end p-2 gap-2"
           >
             {/* Hidden File Input */}
             <input
@@ -262,7 +294,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               className="p-2 text-slate-600 hover:text-blue-600 transition-colors rounded-xl hover:bg-[blue-50] shrink-0"
               title="Đính kèm tài liệu tờ khai/hóa đơn"
             >
-              <span className="material-symbols-outlined text-xl">attach_file</span>
+              <Paperclip size={20} weight="regular" />
             </button>
 
             <textarea
@@ -277,14 +309,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
               className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none max-h-36 min-h-[44px] py-2 px-1 text-sm sm:text-base text-slate-900 placeholder-[#757682]"
             />
 
-            <button
+            <RippleButton
               type="submit"
               disabled={!inputText.trim() && !attachedFile}
-              className="p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 transition-colors shrink-0 shadow-sm cursor-pointer"
+              className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center p-0"
               title="Gửi"
             >
-              <span className="material-symbols-outlined text-xl">send</span>
-            </button>
+              <PaperPlaneRight size={20} weight="fill" />
+            </RippleButton>
           </form>
 
           <div className="text-center mt-2">
