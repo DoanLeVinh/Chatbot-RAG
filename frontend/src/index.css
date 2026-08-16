@@ -2,31 +2,29 @@
 
 @theme {
   --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  
+  --color-primary: #00236f;
+  --color-primary-container: #1e3a8a;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #90a8ff;
+  --color-surface: #faf8ff;
+  --color-surface-dim: #d2d9f4;
+  --color-surface-bright: #faf8ff;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f2f3ff;
+  --color-surface-container: #eaedff;
+  --color-surface-container-high: #e2e7ff;
+  --color-surface-container-highest: #dae2fd;
+  --color-on-surface: #131b2e;
+  --color-on-surface-variant: #444651;
+  --color-outline: #757682;
+  --color-outline-variant: #c5c5d3;
+  --color-secondary-container: #d0e1fb;
+  --color-on-secondary-container: #54647a;
 }
 
 @layer base {
-  :root {
-    --color-primary: #00236f;
-    --color-primary-container: #1e3a8a;
-    --color-on-primary: #ffffff;
-    --color-on-primary-container: #90a8ff;
-    --color-surface: #faf8ff;
-    --color-surface-dim: #d2d9f4;
-    --color-surface-bright: #faf8ff;
-    --color-surface-container-lowest: #ffffff;
-    --color-surface-container-low: #f2f3ff;
-    --color-surface-container: #eaedff;
-    --color-surface-container-high: #e2e7ff;
-    --color-surface-container-highest: #dae2fd;
-    --color-on-surface: #131b2e;
-    --color-on-surface-variant: #444651;
-    --color-outline: #757682;
-    --color-outline-variant: #c5c5d3;
-    --color-secondary-container: #d0e1fb;
-    --color-on-secondary-container: #54647a;
-  }
 }
-
 .hero-pattern {
   background-color: #faf8ff;
   background-image: radial-gradient(#dce1ff 1.2px, transparent 1.2px);
@@ -103,3 +101,8 @@
   transition: all 0.5s ease-in-out;
 }
 
+@layer utilities {
+  .liquid-glass {
+    @apply backdrop-blur-xl bg-white/70 border border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_20px_40px_-15px_rgba(0,0,0,0.05)];
+  }
+}
