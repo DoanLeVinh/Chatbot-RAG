@@ -9,6 +9,7 @@ interface ReferencePanelProps {
   attachments?: Attachment[];
   highlightedCitationId?: string | null;
   onOpenPdfModal?: (title: string, subtitle?: string) => void;
+  width?: number;
 }
 
 export const ReferencePanel: React.FC<ReferencePanelProps> = ({
@@ -18,6 +19,7 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
   attachments = [],
   highlightedCitationId,
   onOpenPdfModal,
+  width = 340,
 }) => {
   const [selectedCitationModal, setSelectedCitationModal] = useState<LegalCitation | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -32,7 +34,10 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
 
   return (
     <>
-      <aside className="w-full md:w-[340px] bg-slate-50/80 backdrop-blur-md border-l border-slate-200 h-full flex flex-col shrink-0 z-30 transition-all duration-300 shadow-lg md:shadow-none">
+      <aside 
+        className="hidden md:flex bg-slate-50/80 backdrop-blur-md border-l border-slate-200 h-full flex-col shrink-0 z-30 transition-all duration-0"
+        style={{ width: `${width}px` }}
+      >
         {/* Panel Header */}
         <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-white/80 sticky top-0 z-10">
           <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
@@ -69,12 +74,7 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
                       : 'border-slate-200/80 hover:border-blue-400'
                   }`}
                 >
-                  <div
-                    className={`absolute top-0 left-0 w-1.5 h-full ${
-                      isAmended ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}
-                  />
-                  <div className="pl-2">
+                  <div>
                     <div className="flex justify-between items-center mb-2">
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${

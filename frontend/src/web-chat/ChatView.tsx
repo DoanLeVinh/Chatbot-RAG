@@ -99,7 +99,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Scrollable Chat Area */}
       <div className="flex-1 overflow-y-auto relative z-10 w-full" id="chat-container">
-        <div className="max-w-[760px] mx-auto px-4 pt-6 pb-6 w-full min-h-full">
+        <div className="max-w-5xl mx-auto px-4 pt-6 pb-6 w-full min-h-full">
           <div className="space-y-6">
           
           {/* System Data Context Banner */}
@@ -220,14 +220,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shrink-0 shadow-sm">
                 <Spinner size={16} weight="bold" className="animate-spin" />
               </div>
-              <div className="bg-white border border-slate-200/60 rounded-[1.5rem] rounded-tl-sm px-5 py-4 flex gap-1.5 items-center shadow-sm">
-                <div className="w-2 h-2 rounded-full bg-blue-600 animate-bounce" />
+              <div className="bg-white border border-slate-200/60 rounded-[1.5rem] rounded-tl-sm px-6 py-4 flex gap-3 items-center shadow-sm">
+                <div className="w-3 h-3 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_4px_10px_rgba(59,130,246,0.5)]" />
                 <div
-                  className="w-2 h-2 rounded-full bg-blue-600 animate-bounce"
+                  className="w-3 h-3 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_4px_10px_rgba(59,130,246,0.5)]"
                   style={{ animationDelay: '0.2s' }}
                 />
                 <div
-                  className="w-2 h-2 rounded-full bg-blue-600 animate-bounce"
+                  className="w-3 h-3 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_4px_10px_rgba(59,130,246,0.5)]"
                   style={{ animationDelay: '0.4s' }}
                 />
               </div>
@@ -240,7 +240,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* Static Bottom Input Bar */}
       <div className="w-full bg-slate-50/50 pt-2 pb-4 px-4 shrink-0 z-20 pointer-events-none border-t border-slate-200/50 shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
-        <div className="max-w-[760px] mx-auto pointer-events-auto">
+        <div className="max-w-5xl mx-auto pointer-events-auto">
           {/* File attachment preview badge */}
           {attachedFile && (
             <div className="mb-2 inline-flex items-center gap-2 bg-blue-200 text-blue-600 px-3 py-1 rounded-lg text-xs font-semibold">

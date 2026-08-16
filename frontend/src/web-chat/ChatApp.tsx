@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ActiveScreen, ChatSession, ChatMessage, LegalCitation } from '../shared/types';
 import { LandingPage } from './LandingPage';
 import { Sidebar } from '../shared/components/Sidebar';
+import { Resizer } from '../shared/components/Resizer';
 import { ChatView } from './ChatView';
 import { ReferencePanel } from './ReferencePanel';
 import { HistoryView } from './HistoryView';
@@ -9,6 +10,7 @@ import { AuthModal } from '../shared/components/AuthModal';
 import { PdfModal } from './PdfModal';
 import { SettingsModal } from '../shared/components/SettingsModal';
 import { LiquidLoader } from '../shared/components/LiquidLoader';
+import { WaterRippleMouse } from '../shared/components/WaterRippleMouse';
 
 const createDefaultBlankSession = (): ChatSession => ({
   id: `session-${Date.now()}`,
@@ -37,6 +39,9 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [isReferencesOpen, setIsReferencesOpen] = useState<boolean>(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState<boolean>(true);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(280);
+  const [referencePanelWidth, setReferencePanelWidth] = useState<number>(340);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isAppLoading, setIsAppLoading] = useState(true);
 
@@ -433,27 +438,52 @@ export default function App() {
       {/* Screen 2 & 3: Chat Application & History Workspace */}
       {activeScreen !== 'landing' && (
         <div className="flex h-screen w-full overflow-hidden relative">
-          {/* Left Navigation Sidebar */}
-          <Sidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            activeScreen={activeScreen}
-            onSelectSession={(id) => {
-              setActiveSessionId(id);
-              setActiveScreen('chat');
-            }}
-            onNewChat={handleNewChat}
-            onNavigateScreen={(scr) => setActiveScreen(scr)}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onDeleteSession={handleDeleteSession}
-            isMobileOpen={isMobileSidebarOpen}
-            onCloseMobile={() => setIsMobileSidebarOpen(false)}
-            currentUser={currentUser}
-            onLogout={handleLogout}
-          />
+          
+          {/* Left Navigation Sidebar (Desktop) */}
+          {isDesktopSidebarOpen && (
+            <>
+              <Sidebar
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                activeScreen={activeScreen}
+                onSelectSession={(id) => {
+                  setActiveSessionId(id);
+                  setActiveScreen('chat');
+                }}
+                onNewChat={handleNewChat}
+                onNavigateScreen={(scr) => setActiveScreen(scr)}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+                onDeleteSession={handleDeleteSession}
+                isMobileOpen={isMobileSidebarOpen}
+                onCloseMobile={() => setIsMobileSidebarOpen(false)}
+                currentUser={currentUser}
+                onLogout={handleLogout}
+                width={sidebarWidth}
+                onCloseDesktop={() => setIsDesktopSidebarOpen(false)}
+              />
+              <Resizer
+                direction="left"
+                onResize={setSidebarWidth}
+                minWidth={200}
+                maxWidth={500}
+              />
+            </>
+          )}
 
-          {/* Main Content View Offset by Sidebar */}
-          <div className="flex-1 flex h-full md:ml-[280px] transition-all duration-300 relative">
+          {/* Main Content View */}
+          <div className="flex-1 flex flex-row h-full relative min-w-0 transition-none">
+            
+            {/* Toggle Sidebar Button when collapsed */}
+            {!isDesktopSidebarOpen && (
+              <button
+                onClick={() => setIsDesktopSidebarOpen(true)}
+                className="hidden md:flex absolute top-4 left-4 z-50 p-2 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 shadow-sm"
+                title="Mở thanh điều hướng"
+              >
+                <span className="material-symbols-outlined">menu</span>
+              </button>
+            )}
+
             {activeScreen === 'chat' ? (
               <ChatView
                 session={activeSession}
@@ -479,17 +509,26 @@ export default function App() {
             )}
 
             {/* Right Side References Panel in Chat mode */}
-            {activeScreen === 'chat' && (
-              <ReferencePanel
-                isOpen={isReferencesOpen}
-                onClose={() => setIsReferencesOpen(false)}
-                citations={activeSession.references || []}
-                attachments={activeSession.attachments}
-                highlightedCitationId={highlightedCitationCode}
-                onOpenPdfModal={(title, subtitle) =>
-                  setPdfModal({ isOpen: true, title, subtitle })
-                }
-              />
+            {activeScreen === 'chat' && isReferencesOpen && (
+              <>
+                <Resizer
+                  direction="right"
+                  onResize={setReferencePanelWidth}
+                  minWidth={250}
+                  maxWidth={800}
+                />
+                <ReferencePanel
+                  isOpen={isReferencesOpen}
+                  onClose={() => setIsReferencesOpen(false)}
+                  citations={activeSession.references || []}
+                  attachments={activeSession.attachments}
+                  highlightedCitationId={highlightedCitationCode}
+                  onOpenPdfModal={(title, subtitle) =>
+                    setPdfModal({ isOpen: true, title, subtitle })
+                  }
+                  width={referencePanelWidth}
+                />
+              </>
             )}
           </div>
         </div>
@@ -521,6 +560,8 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
       />
     </div>
+      {/* Global Water Ripple Effect */}
+      <WaterRippleMouse />
     </>
   );
 }

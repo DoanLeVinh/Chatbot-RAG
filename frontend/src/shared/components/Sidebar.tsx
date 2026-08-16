@@ -2,7 +2,7 @@ import React from 'react';
 import { ActiveScreen, ChatSession } from '../types';
 import { LogiChatLogo } from './LogiChatLogo';
 import { RippleButton } from './RippleButton';
-import { ClockCounterClockwise, Calendar, CalendarBlank, Plus, X, Trash, Gear, SignOut } from '@phosphor-icons/react';
+import { ClockCounterClockwise, Calendar, CalendarBlank, Plus, X, Trash, Gear, SignOut, ShieldCheck, SidebarSimple } from '@phosphor-icons/react';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -11,7 +11,7 @@ interface SidebarProps {
 
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
-  onNavigateScreen: (screen: ActiveScreen) => void;
+  onNavigateScreen: (screen: 'chat' | 'history' | 'landing') => void;
   onOpenSettings: () => void;
 
   // Xóa session
@@ -22,6 +22,8 @@ interface SidebarProps {
 
   currentUser?: { fullName: string } | null;
   onLogout?: () => void;
+  width?: number;
+  onCloseDesktop?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -37,6 +39,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   currentUser,
   onLogout,
+  width = 280,
+  onCloseDesktop,
 }) => {
   // Group sessions
   const todaySessions = sessions.filter(
@@ -125,9 +129,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-surface-bright p-4 border-r border-slate-200/60 w-[280px]">
-
-      {/* Brand Header */}
+    <div className="flex flex-col h-full bg-surface-bright p-4 border-r border-slate-200/60 w-full">
+      {/* Header */}
       <div className="flex items-center justify-between mb-5 px-1 pt-1">
         <div
           onClick={() => onNavigateScreen('landing')}
@@ -146,13 +149,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Mobile close button */}
-        <button
-          onClick={onCloseMobile}
-          className="md:hidden text-slate-600 hover:text-blue-600 p-1"
-        >
-          <X size={24} weight="regular" />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Desktop close button */}
+          {onCloseDesktop && (
+            <button
+              onClick={onCloseDesktop}
+              className="hidden md:flex text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg p-1.5 transition-colors"
+              title="Đóng thanh điều hướng"
+            >
+              <SidebarSimple size={22} weight="regular" />
+            </button>
+          )}
+
+          {/* Mobile close button */}
+          <button
+            onClick={onCloseMobile}
+            className="md:hidden text-slate-600 hover:text-blue-600 p-1.5"
+          >
+            <X size={24} weight="regular" />
+          </button>
+        </div>
       </div>
 
       {/* New Chat */}
@@ -163,9 +179,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onNewChat();
             onCloseMobile();
           }}
-          className="w-full font-semibold py-3 px-4 rounded-2xl flex items-center justify-center gap-2 shadow-[0_8px_20px_-8px_rgba(37,99,235,0.4)] transition-all"
+          className="w-full text-sm font-semibold py-2 px-3 rounded-xl flex items-center justify-center gap-2 shadow-[0_8px_20px_-8px_rgba(37,99,235,0.4)] transition-all"
         >
-          <Plus size={20} weight="bold" />
+          <Plus size={18} weight="bold" />
           Tạo Cuộc Hỏi Đáp Mới
         </RippleButton>
       </div>
@@ -242,60 +258,67 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Bottom */}
-      <div className="mt-auto pt-3 border-t border-blue-200">
-
-        {/* Current User */}
-        {currentUser && (
-          <div className="px-3 py-2 mb-1 flex items-center gap-2">
-
-            <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
-              {currentUser.fullName
-                .charAt(0)
-                .toUpperCase()}
+      <div className="mt-auto pt-3 border-t border-slate-200">
+        {currentUser ? (
+          <div className="flex items-center justify-between px-1 py-1">
+            <div className="flex items-center gap-2 overflow-hidden px-2">
+              <div className="w-7 h-7 shrink-0 rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex items-center justify-center text-xs font-bold">
+                {currentUser.fullName.charAt(0).toUpperCase()}
+              </div>
+              <span className="text-sm font-semibold text-slate-700 truncate max-w-[100px]" title={currentUser.fullName}>
+                {currentUser.fullName}
+              </span>
             </div>
+            
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                title="Cài đặt"
+                onClick={() => {
+                  onOpenSettings();
+                  onCloseMobile();
+                }}
+                className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded-lg transition-all cursor-pointer"
+              >
+                <Gear size={18} weight="fill" />
+              </button>
 
-            <span className="text-xs font-medium text-slate-900 truncate max-w-[150px]">
-              Hi, {currentUser.fullName}
-            </span>
+              {onLogout && (
+                <button
+                  title="Đăng xuất"
+                  onClick={() => {
+                    onLogout();
+                    onCloseMobile();
+                  }}
+                  className="p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-all cursor-pointer"
+                >
+                  <SignOut size={18} weight="fill" />
+                </button>
+              )}
+            </div>
           </div>
-        )}
-
-        {/* Settings */}
-        <button
-          onClick={() => {
-            onOpenSettings();
-            onCloseMobile();
-          }}
-          className="w-full text-slate-600 hover:bg-blue-100 hover:text-blue-600 rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all font-medium"
-        >
-          <Gear size={20} weight="regular" />
-
-          Cài đặt
-        </button>
-
-        {/* Logout */}
-        {currentUser && onLogout && (
+        ) : (
           <button
             onClick={() => {
-              onLogout();
+              onOpenSettings();
               onCloseMobile();
             }}
-            className="w-full text-[#e11d48] hover:bg-[#ffe4e6] hover:text-[#be123c] rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all font-medium mt-1"
+            className="w-full text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all font-medium"
           >
-            <SignOut size={20} weight="regular" />
-
-            Đăng xuất
+            <Gear size={20} weight="regular" />
+            Cài đặt
           </button>
         )}
-
       </div>
     </div>
   );
 
   return (
     <>
-      {/* Desktop fixed sidebar */}
-      <aside className="hidden md:block fixed left-0 top-0 h-screen z-40">
+      {/* Desktop sidebar (now a flex child, width controlled by style) */}
+      <aside 
+        className="hidden md:block h-screen z-40 shrink-0 transition-all duration-0"
+        style={{ width: `${width}px` }}
+      >
         {sidebarContent}
       </aside>
 

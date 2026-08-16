@@ -88,9 +88,9 @@ export default function AdminApp() {
       {/* Admin Sidebar */}
       <div className="w-[280px] bg-white border-r border-[#e5e9f0] flex flex-col relative z-20">
         <div className="p-6 pb-2 border-b border-[#e5e9f0]/50">
-          <div className="flex items-center gap-2 mb-2 cursor-pointer" onClick={() => navigate('/')}>
-            <LogiChatLogo className="w-8 h-8" />
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#0038b8] to-[#0057ff]">
+          <div className="flex items-center gap-2.5 mb-2 cursor-pointer" onClick={() => navigate('/')}>
+            <LogiChatLogo iconOnly size="sm" />
+            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#0038b8] to-[#0057ff] translate-y-0.5">
               LogiAdmin
             </h1>
           </div>
@@ -118,17 +118,17 @@ export default function AdminApp() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-[#e5e9f0]/50 space-y-2">
+        <div className="p-3 border-t border-[#e5e9f0]/50 space-y-1">
           <button
             onClick={() => navigate('/')}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[#4a5568] hover:bg-[#f8fafc] transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[#4a5568] hover:bg-[#f8fafc] transition-all"
           >
             <ArrowLeft className="w-5 h-5 text-[#8c9bab]" />
             <span className="font-medium">Quay lại LogiChat</span>
           </button>
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[#e53e3e] hover:bg-[#fff5f5] transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[#e53e3e] hover:bg-[#fff5f5] transition-all"
           >
             <LogOut className="w-5 h-5" />
             <span className="font-medium">Đăng xuất</span>

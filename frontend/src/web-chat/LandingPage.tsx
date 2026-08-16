@@ -99,17 +99,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <motion.div variants={itemVariants} className="flex flex-col sm:flex-row gap-4 pt-2">
               <button
                 onClick={onStartChat}
-                className="bg-blue-600 text-white px-6 py-3.5 rounded-xl font-bold hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow cursor-pointer text-base"
+                className="bg-blue-600 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow cursor-pointer text-sm"
               >
                 <span>Bắt đầu ngay</span>
-                <span className="material-symbols-outlined text-xl">arrow_forward</span>
+                <span className="material-symbols-outlined text-lg">arrow_forward</span>
               </button>
 
               <button
                 onClick={() => setShowDemoModal(true)}
-                className="bg-white text-slate-800 border border-slate-200 px-6 py-3.5 rounded-xl font-bold hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-base shadow-sm"
+                className="bg-white text-slate-800 border border-slate-200 px-5 py-2.5 rounded-lg font-bold hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-sm shadow-sm"
               >
-                <span className="material-symbols-outlined text-xl text-slate-600">
+                <span className="material-symbols-outlined text-lg text-slate-600">
                   play_circle
                 </span>
                 <span>Xem Demo</span>

@@ -12,6 +12,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [autoCite, setAutoCite] = useState(true);
   const [lawDatabase, setLawDatabase] = useState('2023-2024');
   const [fontSize, setFontSize] = useState('medium');
+  const [waterRipple, setWaterRipple] = useState(
+    localStorage.getItem('waterRippleEnabled') !== 'false'
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
 
@@ -41,6 +44,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ autoCite, lawDatabase, fontSize }),
       });
+
+      // Save frontend-only setting
+      localStorage.setItem('waterRippleEnabled', waterRipple.toString());
+      window.dispatchEvent(new Event('ripple_setting_changed'));
 
       if (res.ok) {
         setSaveStatus('saved');
@@ -91,6 +98,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               type="checkbox"
               checked={autoCite}
               onChange={(e) => setAutoCite(e.target.checked)}
+              className="w-4 h-4 accent-blue-600 cursor-pointer"
+            />
+          </div>
+
+          {/* Setting: Water Ripple Mouse Effect */}
+          <div className="flex justify-between items-center p-3 bg-blue-50 rounded-xl border border-blue-200/60">
+            <div>
+              <label htmlFor="waterRippleCheckbox" className="font-bold text-xs cursor-pointer">Hiệu ứng gợn sóng con trỏ chuột</label>
+              <div className="text-[11px] text-slate-600">
+                Hiển thị gợn nước màu xanh nhạt khi di chuyển chuột ở vùng trống.
+              </div>
+            </div>
+            <input
+              id="waterRippleCheckbox"
+              name="waterRipple"
+              type="checkbox"
+              checked={waterRipple}
+              onChange={(e) => setWaterRipple(e.target.checked)}
               className="w-4 h-4 accent-blue-600 cursor-pointer"
             />
           </div>
