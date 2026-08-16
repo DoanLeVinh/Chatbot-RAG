@@ -34,6 +34,9 @@ import pypdf
 from datetime import datetime
 from dotenv import load_dotenv
 
+# Set working directory to project root to ensure all Path.cwd() and relative paths work
+os.chdir(Path(__file__).resolve().parent.parent)
+
 # Load .env file
 load_dotenv()
 
@@ -51,15 +54,16 @@ from retriever_local import LocalRetriever
 app = FastAPI(title='LogiChat — Trợ lý Pháp lý Hải quan & XNK AI (SQLite & PDR Backend)')
 
 # ─── Data directory setup ───────────────────────────────────────────
-DATA_DIR = Path.cwd() / 'data'
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / 'data'
 DATA_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR = DATA_DIR / 'uploads'
 UPLOADS_DIR.mkdir(exist_ok=True)
 
 # ─── Mount static assets ───────────────────────────────────────────
-static_dir = Path.cwd() / 'frontend' / 'dist'
+static_dir = ROOT_DIR / 'frontend' / 'dist'
 if not static_dir.exists():
-    static_dir = Path.cwd() / 'frontend'
+    static_dir = ROOT_DIR / 'frontend'
 
 assets_dir = static_dir / 'assets'
 if assets_dir.exists():
@@ -167,6 +171,9 @@ def _build_legal_citations(sources: list) -> list:
 
     for i, src in enumerate(sources):
         source_name = src.get('source', '') or ''
+        if source_name.startswith('papers/') or source_name.startswith('papers\\'):
+            source_name = source_name[7:]
+        
         if not source_name or source_name in seen_sources:
             continue
         seen_sources.add(source_name)
@@ -179,7 +186,7 @@ def _build_legal_citations(sources: list) -> list:
             source_name,
             re.IGNORECASE
         )
-        code = code_match.group(1) if code_match else source_name[:40]
+        code = code_match.group(1) if code_match else source_name
 
         title = source_name
         if article_refs:
@@ -191,12 +198,12 @@ def _build_legal_citations(sources: list) -> list:
         citations.append({
             'id': f'cit-{i}-{uuid.uuid4().hex[:6]}',
             'code': code,
-            'title': title[:80],
+            'title': title,
             'status': 'active',
             'statusLabel': 'Đang có hiệu lực',
             'enactmentDate': '',
-            'summary': text_snippet[:300] if text_snippet else f'Trích dẫn từ {source_name}',
-            'fullText': text_snippet[:1000] if text_snippet else None,
+            'summary': (text_snippet[:300] + '...') if text_snippet and len(text_snippet) > 300 else (text_snippet if text_snippet else f'Trích dẫn từ {source_name}'),
+            'fullText': text_snippet if text_snippet else None,
             'sha256': raw_hash,
             'verified': True,
             'pdfUrl': '#',
@@ -376,7 +383,7 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
             accumulated += (word + " ")
             chunk_data = json.dumps({"token": word + " ", "accumulated": accumulated}, ensure_ascii=False)
             yield f"data: {chunk_data}\n\n"
-            await asyncio.sleep(0.015)
+            await asyncio.sleep(0.002)
 
         # Final metadata event
         final_payload = {

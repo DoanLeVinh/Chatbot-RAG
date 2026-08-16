@@ -28,6 +28,11 @@ from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 load_dotenv()
 
+# Ensure backend directory is in sys.path
+_backend_dir = str(Path(__file__).resolve().parent)
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 # Ensure UTF-8 console on Windows
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -37,10 +42,11 @@ except Exception:
 
 import numpy as np
 
-CHUNKS_META = Path.cwd() / "faiss_index_local" / "metadata.json"
-PARENT_CHUNKS_META = Path.cwd() / "faiss_index_local" / "parent_chunks.json"
-INDEX_FAISS = Path.cwd() / "faiss_index_local" / "index.faiss"
-INDEX_HNSW = Path.cwd() / "faiss_index_local" / "index_hnsw.bin"
+ROOT_DIR = Path(__file__).resolve().parent.parent
+CHUNKS_META = ROOT_DIR / "faiss_index_local" / "metadata.json"
+PARENT_CHUNKS_META = ROOT_DIR / "faiss_index_local" / "parent_chunks.json"
+INDEX_FAISS = ROOT_DIR / "faiss_index_local" / "index.faiss"
+INDEX_HNSW = ROOT_DIR / "faiss_index_local" / "index_hnsw.bin"
 
 # default embedding model — dùng multilingual cho tiếng Việt
 DEFAULT_MODEL = os.getenv("LOCAL_EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
@@ -398,14 +404,12 @@ class LocalRetriever:
         return deduplicated_parents, matched_children
 
     def _answer_from_parents(self, query: str, parents: list, children: list, max_sentences: int = 6):
-        """Sinh câu trả lời (Gemini hoặc fallback local) từ danh sách parents/children đã có sẵn.
-        Dùng chung cho cả retrieval toàn cục (FAISS) và retrieval theo phạm vi tài liệu người
-        dùng tự tải lên (scoped)."""
-        if GEMINI_API_KEY:
-            gemini_result = _refine_with_gemini(query, parents)
-            if gemini_result and gemini_result.get('answer'):
-                enriched_sources = _build_enriched_sources_from_parents(parents)
-                return gemini_result['answer'], gemini_result.get('sources', enriched_sources), "gemini"
+        """Sinh câu trả lời (LLMRouter: OpenRouter/Gemini/Ollama hoặc fallback local) từ danh sách parents/children đã có sẵn."""
+        llm_result = _refine_with_llm_router(query, parents)
+        if llm_result and llm_result.get('answer'):
+            enriched_sources = _build_enriched_sources_from_parents(parents)
+            provider = llm_result.get('provider', 'llm')
+            return llm_result['answer'], llm_result.get('sources', enriched_sources), provider
 
         if parents:
             answer, sources = format_full_parents_answer(parents, query, max_items=4)
@@ -622,7 +626,7 @@ def _build_enriched_sources_from_parents(parents):
             'rank': i,
             'source': p.get('source'),
             'start_index': p.get('start_index'),
-            'text': text[:500],
+            'text': text,
             'article_refs': article_refs,
         })
     return enriched
@@ -638,7 +642,7 @@ def _build_enriched_sources(retrieved):
             'rank': i,
             'source': r.get('source'),
             'start_index': r.get('start_index'),
-            'text': text[:400],
+            'text': text,
             'article_refs': article_refs,
         })
     return enriched
@@ -698,22 +702,22 @@ def _call_gemini_api(system_prompt, user_prompt):
     return None
 
 
-def _refine_with_gemini(query, parents):
-    """Sử dụng Gemini với Agent System Prompt + Parent Document context."""
-    if not GEMINI_API_KEY:
-        return None
+def _refine_with_llm_router(query, parents):
+    """Sử dụng LLMRouter (OpenRouter / Gemini / Ollama / OpenAI) với Agent System Prompt + Parent Document context."""
+    from llm_router import get_llm_router
+    router = get_llm_router()
 
-    # Format context từ Parent Chunks (đầy đủ, trọn Điều luật)
-    context_text = _format_parent_context(parents, max_items=4)
+    # Format context từ Parent Chunks (đầy đủ, trọn Điều luật). Giảm max_items để tăng tốc độ phản hồi.
+    context_text = _format_parent_context(parents, max_items=2)
 
     user_prompt = f"""[Ngữ cảnh]: {context_text}
 [Câu hỏi]: {query}"""
 
     try:
-        data = _call_gemini_api(AGENT_SYSTEM_PROMPT, user_prompt)
-        if data and "candidates" in data and len(data["candidates"]) > 0:
-            content = data["candidates"][0]["content"]["parts"][0]["text"]
-            # Remove markdown backticks if Gemini accidentally wraps in code block
+        res = router.generate(AGENT_SYSTEM_PROMPT, user_prompt, max_tokens=3500, temperature=0.2)
+        if res:
+            content, provider = res
+            # Remove markdown backticks if accidentally wraps in code block
             content = re.sub(r'```json\s*', '', content)
             content = re.sub(r'```\s*', '', content)
             content = content.strip()
@@ -724,21 +728,25 @@ def _refine_with_gemini(query, parents):
                 parsed = json.loads(content)
                 answer_text = parsed.get("answer", "")
             except (json.JSONDecodeError, ValueError):
-                # Gemini returned plain text — use directly
                 answer_text = content
                 
             if answer_text:
                 enriched_sources = _build_enriched_sources_from_parents(parents)
                 return {
                     "answer": answer_text,
+                    "provider": provider,
                     "sources": enriched_sources
                 }
     except Exception as e:
-        safe_print(f"Gemini Refine Error: {e}")
-        print(f"Gemini API Error: {e}")
+        safe_print(f"LLMRouter Refine Error: {e}")
         pass
     
     return None
+
+
+def _refine_with_gemini(query, parents):
+    """Backward-compatible alias for _refine_with_llm_router."""
+    return _refine_with_llm_router(query, parents)
 
 
 def _word_overlap_ratio(text_a, text_b):
