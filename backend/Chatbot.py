@@ -19,6 +19,8 @@ import argparse
 from pathlib import Path
 import pypdf
 from dotenv import load_dotenv
+import uuid
+import re
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -67,137 +69,160 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     return "\n".join(pages_text)
 
 
-def split_text_with_regex(text: str, chunk_size: int, chunk_overlap: int, separators: list) -> list:
-    """Recursive-style splitter using regex separators."""
-    if len(text) <= chunk_size:
-        return [text.strip()] if text.strip() else []
+class LegalSemanticParser:
+    def __init__(self, filepath: str):
+        self.filepath = filepath
+        self.filename = Path(filepath).name
+        self.doc_number = self._extract_doc_number(self.filename)
+        self.doc_type = self._extract_doc_type(self.filename)
+        
+        self.nodes = []
+        self.active_nodes = {
+            "chuong": None,
+            "muc": None,
+            "tieu_muc": None,
+            "dieu": None,
+            "khoan": None,
+            "phu_luc": None,
+            "mau_so": None
+        }
+        self.current_node = None
 
-    for sep in separators:
-        splits = re.split(sep, text)
-        if len(splits) > 1:
-            chunks = []
-            current = ""
-            for s in splits:
-                s_clean = s.strip()
-                if not s_clean:
-                    continue
-                if len(current) + len(s_clean) + 1 <= chunk_size:
-                    current = (current + "\n" + s_clean).strip() if current else s_clean
+    def _extract_doc_number(self, filename: str) -> str:
+        name = filename.replace(".pdf", "")
+        match = re.search(r"(\d+)[-/](\d+)[-/]([A-ZĐ-]+)", name)
+        if match:
+            return f"{match.group(1)}/{match.group(2)}/{match.group(3)}"
+        return name
+
+    def _extract_doc_type(self, filename: str) -> str:
+        name = filename.lower()
+        if "nghị định" in name or "nd-cp" in name or "nđ-cp" in name:
+            return "NGHI_DINH"
+        if "thông tư" in name or "tt-" in name:
+            return "THONG_TU"
+        if "luật" in name:
+            return "LUAT"
+        if "quyết định" in name or "qd-" in name or "qđ-" in name:
+            return "QUYET_DINH"
+        if "vbhn" in name:
+            return "VBHN"
+        return "UNKNOWN"
+
+    def _get_parent_id(self, level: str):
+        hierarchy = ["chuong", "muc", "tieu_muc", "dieu", "khoan"]
+        if level in ["phu_luc", "mau_so"]:
+            return None
+        
+        idx = hierarchy.index(level)
+        for i in range(idx - 1, -1, -1):
+            parent = self.active_nodes[hierarchy[i]]
+            if parent:
+                return parent["id"]
+        return None
+
+    def _create_node(self, node_type: str, title: str):
+        parent_id = self._get_parent_id(node_type)
+        node = {
+            "id": str(uuid.uuid4()),
+            "parent_id": parent_id,
+            "node_type": node_type,
+            "title": title,
+            "text_content": [],
+            "source": f"papers/{self.filename}",
+            "doc_number": self.doc_number,
+            "doc_type": self.doc_type
+        }
+        self.nodes.append(node)
+        self.active_nodes[node_type] = node
+        self.current_node = node
+        
+        hierarchy = ["chuong", "muc", "tieu_muc", "dieu", "khoan"]
+        if node_type in hierarchy:
+            idx = hierarchy.index(node_type)
+            for i in range(idx + 1, len(hierarchy)):
+                self.active_nodes[hierarchy[i]] = None
+
+    def parse(self, text: str):
+        lines = text.split('\n')
+        for line in lines:
+            line_s = line.strip()
+            if not line_s:
+                continue
+
+            m_chap = re.match(r"(?i)^(CHƯƠNG\s+[IVXLCDM\d]+)[\.\:\s]*(.*)", line_s)
+            m_sec = re.match(r"(?i)^(Mục\s+\d+)[\.\:\s]*(.*)", line_s)
+            m_subsec = re.match(r"(?i)^(Tiểu\s+mục\s+\d+)[\.\:\s]*(.*)", line_s)
+            m_art = re.match(r"(?i)^(Điều\s+\d+[A-Za-z]?)\.[\s]*(.*)", line_s)
+            m_clause = re.match(r"^(\d+)\.\s+(.*)", line_s)
+            m_app = re.match(r"(?i)^(Phụ\s+lục\s+[A-Za-z\d]+)[\.\:\s]*(.*)", line_s)
+            m_form = re.match(r"(?i)^(Mẫu\s+số\s+[A-Za-z\d]+)[\.\:\s]*(.*)", line_s)
+
+            matched = True
+            if m_chap:
+                self._create_node("chuong", m_chap.group(1).upper() + (f": {m_chap.group(2)}" if m_chap.group(2) else ""))
+            elif m_sec:
+                self._create_node("muc", m_sec.group(1).title() + (f": {m_sec.group(2)}" if m_sec.group(2) else ""))
+            elif m_subsec:
+                self._create_node("tieu_muc", m_subsec.group(1).title() + (f": {m_subsec.group(2)}" if m_subsec.group(2) else ""))
+            elif m_art:
+                self._create_node("dieu", m_art.group(1).title() + (f": {m_art.group(2)}" if m_art.group(2) else ""))
+            elif m_clause and not self.active_nodes["phu_luc"] and not self.active_nodes["mau_so"]:
+                self._create_node("khoan", f"Khoản {m_clause.group(1)}" + (f": {m_clause.group(2)}" if m_clause.group(2) else ""))
+            elif m_app:
+                self._create_node("phu_luc", m_app.group(1).title() + (f": {m_app.group(2)}" if m_app.group(2) else ""))
+            elif m_form:
+                self._create_node("mau_so", m_form.group(1).title() + (f": {m_form.group(2)}" if m_form.group(2) else ""))
+            else:
+                matched = False
+
+            if not matched:
+                if self.current_node:
+                    self.current_node["text_content"].append(line_s)
                 else:
-                    if current:
-                        chunks.append(current)
-                    if len(s_clean) > chunk_size:
-                        sub_chunks = split_text_with_regex(s_clean, chunk_size, chunk_overlap, separators[1:])
-                        chunks.extend(sub_chunks)
-                        current = ""
-                    else:
-                        current = s_clean
-            if current:
-                chunks.append(current)
-            return chunks
-
-    # Fallback character slice
-    chunks = []
-    for i in range(0, len(text), chunk_size - chunk_overlap):
-        chunk = text[i:i + chunk_size].strip()
-        if chunk:
-            chunks.append(chunk)
-    return chunks
-
+                    node = {
+                        "id": str(uuid.uuid4()),
+                        "parent_id": None,
+                        "node_type": "text",
+                        "title": "",
+                        "text_content": [line_s],
+                        "source": f"papers/{self.filename}",
+                        "doc_number": self.doc_number,
+                        "doc_type": self.doc_type
+                    }
+                    self.nodes.append(node)
+                    self.current_node = node
+                    
+        for n in self.nodes:
+            n["text_content"] = "\n".join(n["text_content"])
+            n["sha256_hash"] = "" # calculated in seed DB
+            
+        return self.nodes
 
 def process_single_pdf(file_path: str):
-    """Process a single PDF into Parent and Child chunks with active Chapter tracking."""
-    # Standardize source path to papers/filename.pdf
-    filename = Path(file_path).name
-    source_name = f"papers/{filename}"
-    print(f"[process] Đang trích xuất nội dung từ: {source_name}")
+    print(f"[process] Đang trích xuất nội dung từ: {file_path}")
     raw_text = extract_text_from_pdf(file_path)
-
     if not raw_text.strip():
         print(f"[warn] File {file_path} không có nội dung văn bản.")
-        return [], []
-
-    parent_texts = split_text_with_regex(raw_text, PARENT_CHUNK_SIZE, PARENT_CHUNK_OVERLAP, PARENT_SEPARATORS)
-
-    parent_chunks = []
-    child_chunks = []
-
-    current_chapter = None
-
-    for p_idx, p_text in enumerate(parent_texts):
-        # Update current chapter if detected in this chunk
-        chap_match = re.search(r"(?:^|\n)\s*((?:CHƯƠNG|Chương)\s+[IVXLCDM\d]+[^\n\.\:]*)", p_text, re.IGNORECASE)
-        if chap_match:
-            detected_chap = chap_match.group(1).strip()
-            # Normalize to uppercase CHƯƠNG
-            current_chapter = re.sub(r"^[Cc]hương", "CHƯƠNG", detected_chap)
-
-        # Detect articles in this chunk
-        article_matches = re.findall(r"Điều\s+(\d+[A-Za-z]?)", p_text)
-        seen_articles = set()
-        article_ids = []
-        for a in article_matches:
-            art_key = f"Điều {a}"
-            if art_key not in seen_articles:
-                seen_articles.add(art_key)
-                article_ids.append(art_key)
-
-        # Detect clauses
-        clause_matches = re.findall(r"(?:^|\n)\s*(\d+)\.\s", p_text)
-        clause_ids = list(dict.fromkeys(clause_matches))
-
-        chapter_val = current_chapter if current_chapter else "Không phân chương"
-
-        parent_id = str(uuid.uuid4())
-        parent_chunk = {
-            "parent_id": parent_id,
-            "parent_index": p_idx,
-            "source": source_name,
-            "length": len(p_text),
-            "article_ids": article_ids,
-            "clause_ids": clause_ids,
-            "chapter": chapter_val,
-            "text": p_text,
-        }
-        parent_chunks.append(parent_chunk)
-
-        # Child split
-        child_texts = split_text_with_regex(p_text, CHILD_CHUNK_SIZE, CHILD_CHUNK_OVERLAP, CHILD_SEPARATORS)
-        for c_idx, c_text in enumerate(child_texts):
-            c_art_matches = re.findall(r"Điều\s+(\d+[A-Za-z]?)", c_text)
-            c_articles = [f"Điều {a}" for a in dict.fromkeys(c_art_matches)]
-            c_clauses = list(dict.fromkeys(re.findall(r"(?:^|\n)\s*(\d+)\.\s", c_text)))
-
-            child_chunk = {
-                "chunk_id": f"{parent_id[:8]}_{c_idx}",
-                "parent_id": parent_id,
-                "parent_index": p_idx,
-                "child_index": c_idx,
-                "source": source_name,
-                "length": len(c_text),
-                "article_ids": c_articles or article_ids,
-                "clause_ids": c_clauses or clause_ids,
-                "chapter": chapter_val,
-                "text": c_text,
-            }
-            child_chunks.append(child_chunk)
-
-    print(f"[success] {source_name}: {len(parent_chunks)} Parent Chunks -> {len(child_chunks)} Child Chunks")
-    return parent_chunks, child_chunks
-
+        return []
+        
+    parser = LegalSemanticParser(file_path)
+    nodes = parser.parse(raw_text)
+    
+    print(f"[success] {file_path}: {len(nodes)} Nodes (Hierarchical)")
+    return nodes
 
 def main():
-    parser = argparse.ArgumentParser(description="Chunk legal PDFs with Two-Tier Parent-Child structure.")
+    parser = argparse.ArgumentParser(description="Chunk legal PDFs with Hierarchical structure.")
     parser.add_argument("--file", type=str, default=None, help="Process a single PDF file only.")
     args = parser.parse_args()
 
-    out_dir = Path.cwd() / "out"
+    ROOT_DIR = Path(__file__).resolve().parent.parent
+    out_dir = ROOT_DIR / "out"
     out_dir.mkdir(exist_ok=True)
-    chunks_path = out_dir / "chunks.json"
-    parent_path = out_dir / "parent_chunks.json"
+    nodes_path = out_dir / "document_nodes.json"
 
-    existing_parents = []
-    existing_children = []
+    existing_nodes = []
 
     if args.file:
         target_file = Path(args.file)
@@ -207,45 +232,32 @@ def main():
         files_to_process = [str(target_file)]
 
         # Load existing data to merge
-        if parent_path.exists():
-            with open(parent_path, "r", encoding="utf-8") as f:
-                existing_parents = json.load(f)
-        if chunks_path.exists():
-            with open(chunks_path, "r", encoding="utf-8") as f:
-                existing_children = json.load(f)
+        if nodes_path.exists():
+            with open(nodes_path, "r", encoding="utf-8") as f:
+                existing_nodes = json.load(f)
 
         # Remove previous chunks for this source if present
         target_source = f"papers/{target_file.name}"
-        existing_parents = [p for p in existing_parents if p.get("source") != target_source and Path(p.get("source", "")).name != target_file.name]
-        existing_children = [c for c in existing_children if c.get("source") != target_source and Path(c.get("source", "")).name != target_file.name]
+        existing_nodes = [n for n in existing_nodes if n.get("source") != target_source and Path(n.get("source", "")).name != target_file.name]
     else:
-        papers_dir = Path.cwd() / "papers"
+        papers_dir = ROOT_DIR / "papers"
         files_to_process = [str(p) for p in papers_dir.glob("*.pdf")]
         if not files_to_process:
             print("[warn] Không tìm thấy file PDF nào trong ./papers.")
             sys.exit(0)
 
-    new_parents = []
-    new_children = []
+    new_nodes = []
 
     for f_path in files_to_process:
-        p_chunks, c_chunks = process_single_pdf(f_path)
-        new_parents.extend(p_chunks)
-        new_children.extend(c_chunks)
+        nodes = process_single_pdf(f_path)
+        new_nodes.extend(nodes)
 
-    final_parents = existing_parents + new_parents
-    final_children = existing_children + new_children
+    final_nodes = existing_nodes + new_nodes
 
-    for idx, c in enumerate(final_children):
-        c["chunk_id"] = idx
+    with open(nodes_path, "w", encoding="utf-8") as f:
+        json.dump(final_nodes, f, ensure_ascii=False, indent=2)
 
-    with open(parent_path, "w", encoding="utf-8") as f:
-        json.dump(final_parents, f, ensure_ascii=False, indent=2)
-
-    with open(chunks_path, "w", encoding="utf-8") as f:
-        json.dump(final_children, f, ensure_ascii=False, indent=2)
-
-    print(f"\n[DONE] Tổng cộng: {len(final_parents)} Parent Chunks, {len(final_children)} Child Chunks đã lưu vào ./out/")
+    print(f"\n[DONE] Tổng cộng: {len(final_nodes)} Hierarchical Nodes đã lưu vào ./out/")
 
 
 if __name__ == "__main__":
