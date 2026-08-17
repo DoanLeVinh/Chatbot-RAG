@@ -20,7 +20,11 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 
-DB_PATH = Path.cwd() / 'data' / 'logichat.db'
+# Make DB_PATH relative to db.py location, effectively C:\TTTN\Chatbot-RAG\data\logichat.db
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DB_DIR = ROOT_DIR / "data"
+DB_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = DB_DIR / "logichat.db"
 JWT_SECRET = os.getenv("JWT_SECRET", "logichat_super_secure_jwt_secret_key_2026")
 
 def calculate_sha256(content: str) -> str:
@@ -166,9 +170,17 @@ def init_db():
                 filename TEXT NOT NULL,
                 title TEXT,
                 sha256_hash TEXT,
+                status TEXT DEFAULT 'processed',
                 upload_date DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         """)
+
+        # Migration: Ensure 'status' column exists in documents
+        cursor.execute("PRAGMA table_info(documents);")
+        doc_cols = [col["name"] for col in cursor.fetchall()]
+        if "status" not in doc_cols:
+            cursor.execute("ALTER TABLE documents ADD COLUMN status TEXT DEFAULT 'processed';")
+
 
         # Table: document_parent_chunks (Two-tier PDR Parent Chunks)
         cursor.execute("""
@@ -198,6 +210,24 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+            );
+        """)
+
+        # Table: document_nodes (New Hierarchical N-ary Tree)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS document_nodes (
+                id TEXT PRIMARY KEY,
+                document_id TEXT,
+                source TEXT,
+                parent_id TEXT,
+                node_type TEXT NOT NULL,
+                title TEXT,
+                text_content TEXT,
+                sha256_hash TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+                FOREIGN KEY(parent_id) REFERENCES document_nodes(id) ON DELETE CASCADE
             );
         """)
 
@@ -602,6 +632,21 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
         conn.commit()
         return msg_id
 
+def get_recent_messages_for_llm(session_id: str, limit: int = 4) -> list:
+    """Lấy N tin nhắn gần nhất để làm Sliding Window Memory cho LLM."""
+    if not session_id:
+        return []
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT sender, text FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?;", (session_id, limit))
+        rows = cursor.fetchall()
+        
+        # rows are in DESC order, we need ASC for LLM
+        history = []
+        for r in reversed(rows):
+            role = "assistant" if r["sender"] == "ai" else "user"
+            history.append({"role": role, "content": r["text"]})
+        return history
 
 # ─── Attachments & Settings ────────────────────────────────────────
 
@@ -902,6 +947,31 @@ def update_chunk(parent_id: str, text: str, chapter: str, article_ids: List[str]
         conn.commit()
         return True
 
+def insert_chunk(parent_id: str, source: str, text: str, chapter: str, article_ids: List[str]) -> bool:
+    """Insert a new parent chunk into SQLite and calculate SHA-256 hash."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        article_ids_str = ", ".join(article_ids)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sha256_hash = calculate_sha256(f"{source}|{chapter}|{article_ids_str}|{text}")
+
+        cursor.execute(
+            """INSERT INTO document_parent_chunks 
+               (parent_id, source, text, chapter, article_ids, sha256_hash, created_at, updated_at) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?);""",
+            (parent_id, source, text, chapter, article_ids_str, sha256_hash, now_str, now_str)
+        )
+        conn.commit()
+        return True
+
+def delete_chunk(parent_id: str) -> bool:
+    """Delete a parent chunk from SQLite."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM document_parent_chunks WHERE parent_id = ?;", (parent_id,))
+        conn.commit()
+        return True
+
 def verify_document_integrity(identifier: str) -> Dict[str, Any]:
     """Verify SHA-256 integrity hash of a Parent Chunk or Legal Citation."""
     with get_connection() as conn:
@@ -939,86 +1009,132 @@ def verify_document_integrity(identifier: str) -> Dict[str, Any]:
             "status": "VERIFIED_AUTHENTIC" if is_intact else "TAMPER_DETECTED"
         }
 
+def insert_admin_document(filename: str) -> str:
+    """Insert a new document record with processing status."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        doc_id = f"doc-{uuid.uuid4().hex[:8]}"
+        cursor.execute(
+            "INSERT INTO documents (id, filename, status) VALUES (?, ?, ?);",
+            (doc_id, filename, 'processing')
+        )
+        conn.commit()
+        return doc_id
+
+def update_document_status(filename: str, status: str):
+    """Update document status based on filename."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE documents SET status = ? WHERE filename = ?;",
+            (status, filename)
+        )
+        conn.commit()
+
 def get_documents_hierarchy() -> List[Dict[str, Any]]:
-    """Get list of PDF sources and their chapters for tree view."""
+    """Get list of PDF sources, processing status, and their chunk count."""
     with get_connection() as conn:
         cursor = conn.cursor()
         
-        # Get distinct sources
-        cursor.execute("SELECT DISTINCT source FROM document_parent_chunks ORDER BY source;")
-        sources = cursor.fetchall()
+        # Use documents table for primary tracking and left join chunks
+        cursor.execute("""
+            SELECT d.filename, d.status, COUNT(c.parent_id) as chunk_count 
+            FROM documents d
+            LEFT JOIN document_parent_chunks c ON c.source = 'papers/' || d.filename 
+            GROUP BY d.filename, d.status
+            ORDER BY d.upload_date DESC;
+        """)
+        rows = cursor.fetchall()
         
         result = []
-        for s_row in sources:
-            source = s_row["source"]
-            if not source:
-                continue
-                
-            # Get chapters for this source
-            cursor.execute(
-                "SELECT DISTINCT chapter, COUNT(*) as chunk_count FROM document_parent_chunks WHERE source = ? GROUP BY chapter ORDER BY chapter;",
-                (source,)
-            )
-            chap_rows = cursor.fetchall()
-            chapters = []
-            total_chunks = 0
-            for c_row in chap_rows:
-                chapter = c_row["chapter"] or "Không phân chương"
-                count = c_row["chunk_count"]
-                total_chunks += count
-                chapters.append({
-                    "chapter": chapter,
-                    "chunk_count": count
+        # Fallback for old documents that are in document_parent_chunks but not in documents table
+        # Find any distinct sources in document_parent_chunks that are not in documents
+        cursor.execute("""
+            SELECT source, COUNT(*) as chunk_count 
+            FROM document_parent_chunks 
+            WHERE source NOT IN (SELECT 'papers/' || filename FROM documents)
+            GROUP BY source;
+        """)
+        legacy_sources = cursor.fetchall()
+
+        for s_row in legacy_sources:
+            if s_row["source"].startswith("papers/"):
+                filename = s_row["source"].replace("papers/", "")
+                result.append({
+                    "source": s_row["source"],
+                    "total_chunks": s_row["chunk_count"],
+                    "status": "ready"
                 })
-            
+        
+        for r in rows:
             result.append({
-                "source": source,
-                "total_chunks": total_chunks,
-                "chapters": chapters
+                "source": f"papers/{r['filename']}",
+                "total_chunks": r["chunk_count"],
+                "status": r["status"]
             })
             
         return result
 
-def get_chunks_by_hierarchy(source: str, chapter: str) -> List[Dict[str, Any]]:
-    """Get chunks belonging to a specific source and chapter."""
+def get_chunks_by_source(source: str) -> List[Dict[str, Any]]:
+    """Get all hierarchical chunks belonging to a specific source."""
     with get_connection() as conn:
         cursor = conn.cursor()
         
-        if chapter == "Không phân chương":
-            cursor.execute(
-                "SELECT * FROM document_parent_chunks WHERE source = ? AND (chapter IS NULL OR chapter = '') ORDER BY parent_id;",
-                (source,)
-            )
-        else:
-            cursor.execute(
-                "SELECT * FROM document_parent_chunks WHERE source = ? AND chapter = ? ORDER BY parent_id;",
-                (source, chapter)
-            )
+        cursor.execute(
+            "SELECT * FROM document_nodes WHERE source = ? ORDER BY id;",
+            (source,)
+        )
             
         rows = cursor.fetchall()
         result = []
         for r in rows:
             chunk = dict(r)
-            if chunk.get("article_ids"):
-                chunk["article_ids"] = [x.strip() for x in chunk["article_ids"].split(",") if x.strip()]
-            else:
-                chunk["article_ids"] = []
+            # Map columns to match old frontend format to prevent UI breaking completely
+            chunk["parent_id"] = r["parent_id"]
+            chunk["node_id"] = r["id"]
+            chunk["chapter"] = r["node_type"].upper()
+            chunk["article_ids"] = [r["title"]] if r["title"] else []
+            chunk["text"] = r["text_content"]
             result.append(chunk)
             
-        return result
+        # Build tree structure
+        node_map = {n["node_id"]: n for n in result}
+        tree = []
+        
+        for n in result:
+            n["children"] = []
+            
+        for n in result:
+            pid = n["parent_id"]
+            if pid and pid in node_map:
+                node_map[pid]["children"].append(n)
+            else:
+                tree.append(n)
+                
+        return tree
 
 def delete_document_by_source(source: str) -> bool:
-    """Delete all chunks belonging to a specific source."""
+    """Delete all chunks and document records belonging to a specific source."""
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        # Determine filename from source (e.g., 'papers/file.pdf' -> 'file.pdf')
+        filename = source.replace("papers/", "") if source.startswith("papers/") else source
+        
+        # 1. Delete from document_parent_chunks
         cursor.execute("DELETE FROM document_parent_chunks WHERE source = ?;", (source,))
         deleted_parents = cursor.rowcount
         
-        # Try legacy table
-        cursor.execute("DELETE FROM document_chunks WHERE document_id IN (SELECT id FROM documents WHERE filename LIKE ?);", (f"%{source}%",))
+        # 2. Delete from legacy document_chunks
+        cursor.execute("DELETE FROM document_chunks WHERE document_id IN (SELECT id FROM documents WHERE filename = ?);", (filename,))
+        deleted_legacy = cursor.rowcount
+        
+        # 3. Delete from documents table
+        cursor.execute("DELETE FROM documents WHERE filename = ?;", (filename,))
+        deleted_docs = cursor.rowcount
         
         conn.commit()
-        return deleted_parents > 0
+        return (deleted_parents > 0) or (deleted_legacy > 0) or (deleted_docs > 0)
 
 # Initialize DB upon import
 init_db()
