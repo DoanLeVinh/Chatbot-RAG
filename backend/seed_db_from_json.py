@@ -1,9 +1,10 @@
-"""Seed SQLite database with Parent & Child chunks from JSON."""
+"""Seed SQLite database with hierarchical nodes from JSON."""
 import json
 import sqlite3
 import uuid
 import sys
 from pathlib import Path
+import hashlib
 
 # Add backend directory to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -13,51 +14,57 @@ def seed_db():
     db.init_db()
     
     base_dir = Path(__file__).resolve().parent.parent
-    parent_chunks_path = base_dir / 'faiss_index_local' / 'parent_chunks.json'
-    if not parent_chunks_path.exists():
-        parent_chunks_path = base_dir / 'out' / 'parent_chunks.json'
+    nodes_path = base_dir / 'out' / 'document_nodes.json'
 
-    if parent_chunks_path.exists():
-        inserted_parents = db.seed_parent_chunks_from_json(parent_chunks_path)
-        print(f"[OK] Seeded {inserted_parents} Parent Chunks with SHA-256 hashes into SQLite.")
-    else:
-        print(f"[WARN] parent_chunks.json not found at {parent_chunks_path}")
-
-    # Seed child chunks for legacy compatibility if available
-    chunks_path = base_dir / 'out' / 'chunks.json'
-    if chunks_path.exists():
-        with open(chunks_path, 'r', encoding='utf-8') as f:
-            chunks = json.load(f)
+    if nodes_path.exists():
+        with open(nodes_path, 'r', encoding='utf-8') as f:
+            nodes = json.load(f)
 
         with db.get_connection() as conn:
             cursor = conn.cursor()
-            doc_id = "doc-default-01"
-            cursor.execute(
-                "INSERT OR IGNORE INTO documents (id, filename, title) VALUES (?, ?, ?)",
-                (doc_id, "All_Legal_Documents", "Dữ liệu pháp luật tổng hợp")
-            )
             
             inserted = 0
-            for chunk in chunks:
-                chunk_id = chunk.get("id") or str(uuid.uuid4())
-                parent_id = chunk.get("parent_id", "")
-                text = chunk.get("text", "")
-                chapter = chunk.get("chapter", "")
-                article_ids_raw = chunk.get("article_ids", [])
-                article_ids = ", ".join(article_ids_raw) if isinstance(article_ids_raw, list) else str(article_ids_raw)
+            for node in nodes:
+                node_id = node.get("id")
+                parent_id = node.get("parent_id")
+                node_type = node.get("node_type")
+                title = node.get("title", "")
+                text_content = node.get("text_content", "")
+                source = node.get("source", "")
                 
-                cursor.execute("SELECT id FROM document_chunks WHERE id=?", (chunk_id,))
+                # Create a document entry if not exists
+                doc_id = "doc-" + hashlib.md5(source.encode()).hexdigest()
+                cursor.execute("SELECT id FROM documents WHERE id=?", (doc_id,))
+                if not cursor.fetchone():
+                    cursor.execute(
+                        "INSERT INTO documents (id, filename, title) VALUES (?, ?, ?)",
+                        (doc_id, Path(source).name, Path(source).name)
+                    )
+                
+                # Calculate sha256_hash for the text
+                content_to_hash = title + "\n" + text_content
+                sha256_hash = hashlib.sha256(content_to_hash.encode('utf-8')).hexdigest()
+                node["sha256_hash"] = sha256_hash
+                
+                cursor.execute("SELECT id FROM document_nodes WHERE id=?", (node_id,))
                 if not cursor.fetchone():
                     cursor.execute(
                         """
-                        INSERT INTO document_chunks (id, document_id, parent_id, text, chapter, article_ids)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO document_nodes (id, document_id, source, parent_id, node_type, title, text_content, sha256_hash)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        (chunk_id, doc_id, parent_id, text, chapter, article_ids)
+                        (node_id, doc_id, source, parent_id, node_type, title, text_content, sha256_hash)
                     )
                     inserted += 1
+                    
+            # update json with hashes
+            with open(nodes_path, 'w', encoding='utf-8') as fw:
+                json.dump(nodes, fw, ensure_ascii=False, indent=2)
+                
             conn.commit()
-            print(f"[OK] Seeded {inserted} Child Chunks into SQLite.")
+            print(f"[OK] Seeded {inserted} Hierarchical Nodes into SQLite.")
+    else:
+        print(f"[WARN] document_nodes.json not found at {nodes_path}")
 
 if __name__ == '__main__':
     seed_db()
