@@ -1,4 +1,7 @@
-"""Build a local FAISS (or hnswlib fallback) index using sentence-transformers embeddings.
+"""[DEPRECATED] Build a local FAISS (or hnswlib fallback) index using sentence-transformers embeddings.
+WARNING: This script is deprecated and kept for CLI testing only.
+FAISS index building has been moved to an in-memory process inside LocalRetriever
+to improve performance and avoid CPU/Memory bottlenecks during web server operation.
 
 Nâng cấp PDR: Embed Child Chunks (nhỏ, ~300 ký tự) thay vì Parent Chunks lớn.
 Đồng thời copy parent_chunks.json vào faiss_index_local/ để retriever lookup.
@@ -19,6 +22,13 @@ import sys
 import json
 import shutil
 from pathlib import Path
+
+# Prevent CPU starvation which causes 502 Bad Gateway in Vite proxy
+os.environ["OMP_NUM_THREADS"] = "2"
+os.environ["OPENBLAS_NUM_THREADS"] = "2"
+os.environ["MKL_NUM_THREADS"] = "2"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "2"
+os.environ["NUMEXPR_NUM_THREADS"] = "2"
 
 # Ensure UTF-8 output in Windows console to avoid UnicodeEncodeError when printing Vietnamese text
 try:

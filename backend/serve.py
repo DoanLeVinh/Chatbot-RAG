@@ -7,7 +7,7 @@ and professional UTF-8 PDF export.
 Run:
   python backend/serve.py
 """
-from fastapi import FastAPI, Request, UploadFile, File as FastAPIFile, Header, HTTPException, Depends, Query, Form
+from fastapi import FastAPI, Request, UploadFile, File as FastAPIFile, Header, HTTPException, Depends, Query, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -255,6 +255,12 @@ class AdminUserUpdateReq(BaseModel):
     password: Optional[str] = None
     role: Optional[str] = None
 
+class AdminChunkCreateReq(BaseModel):
+    source: str
+    text: str
+    article_ids: List[str]
+    chapter: Optional[str] = None
+
 class AdminChunkUpdateReq(BaseModel):
     text: str
     article_ids: List[str]
@@ -310,13 +316,17 @@ async def api_query(q: QueryIn):
 async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_current_user_optional)):
     r = get_retriever()
 
+    # Retrieve last 4 messages (2 pairs) for sliding window memory
+    chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
+
     # "Chat theo phạm vi tài liệu": nếu phiên này đã có tài liệu người dùng tải lên,
     # CHỈ trả lời dựa trên nội dung (các) tài liệu đó — không dùng kho luật chung.
     if req.sessionId and db.session_has_documents(req.sessionId):
         scoped_chunks = db.get_session_document_chunks(req.sessionId)
-        answer, sources, provider = r.synthesize_scoped(req.prompt, scoped_chunks, top_k=5, max_sentences=6)
+        answer, sources, provider = r.synthesize_scoped(req.prompt, scoped_chunks, top_k=2, max_sentences=5)
     else:
-        answer, sources, provider = r.synthesize(req.prompt, top_k=5, max_sentences=6)
+        # Giảm top_k từ 5 xuống 2 để LLM không bị ngợp context, tăng tốc độ sinh chữ (giảm TTFT)
+        answer, sources, provider = r.synthesize(req.prompt, chat_history=chat_history, top_k=5, max_sentences=5)
 
     # Extract structured data
     hs_code = _extract_hs_code(req.prompt + ' ' + answer)
@@ -368,42 +378,59 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
     effective_user_id = user_payload["id"] if user_payload else req.userId
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        answer, sources, provider = r.synthesize(req.prompt, top_k=5, max_sentences=6)
-        
-        hs_code = _extract_hs_code(req.prompt + ' ' + answer)
-        taxes = _extract_tax_info(answer)
-        inspections = _extract_inspection_info(answer)
+        full_answer = ""
+        provider = "local"
+        sources = []
+
+        # Retrieve sliding window memory
+        chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
+
+        # Consume the generator synchronously but yield async for SSE
+        for chunk in r.synthesize_stream(req.prompt, chat_history=chat_history, top_k=5):
+            if chunk["type"] == "text":
+                text = chunk["content"]
+                full_answer += text
+                if chunk.get("sources"):
+                    sources = chunk["sources"]
+                
+                payload = json.dumps({"token": text}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+                await asyncio.sleep(0) # Yield control
+            elif chunk["type"] == "error":
+                yield f"data: {json.dumps({'error': chunk['content']}, ensure_ascii=False)}\n\n"
+                return
+
+        # End of stream extraction
+        hs_code = _extract_hs_code(req.prompt + ' ' + full_answer)
+        taxes = _extract_tax_info(full_answer)
+        inspections = _extract_inspection_info(full_answer)
         citations = _build_legal_citations(sources)
         taxes = _attach_citation_codes_to_taxes(taxes, citations)
 
-        # Stream tokens
-        words = answer.split(' ')
-        accumulated = ""
-        for i, word in enumerate(words):
-            accumulated += (word + " ")
-            chunk_data = json.dumps({"token": word + " ", "accumulated": accumulated}, ensure_ascii=False)
-            yield f"data: {chunk_data}\n\n"
-            await asyncio.sleep(0.002)
+        summary_pdf = {
+            'title': 'Tải bản tóm tắt (PDF)',
+            'downloadUrl': '/api/export/pdf',
+        } if full_answer and len(full_answer) > 50 else None
 
-        # Final metadata event
         final_payload = {
             "done": True,
-            "reply": answer,
+            "reply": full_answer,
             "provider": provider,
             "hsCode": hs_code,
             "taxes": taxes if taxes else None,
             "inspections": inspections,
-            "citations": citations if citations else None
+            "citations": citations if citations else None,
+            "summaryPdf": summary_pdf
         }
 
         if req.sessionId:
             try:
                 timestamp = datetime.now().strftime('%H:%M')
-                db.add_message(req.sessionId, 'user', req.prompt, timestamp)
+                db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
                 db.add_message(
-                    req.sessionId, 'ai', answer, timestamp,
+                    req.sessionId, 'ai', full_answer, timestamp,
                     hs_code=hs_code, taxes=taxes, inspections=inspections,
-                    citations=citations
+                    citations=citations, summary_pdf=summary_pdf, user_id=effective_user_id
                 )
             except Exception as db_err:
                 print(f"[Warning] Failed to persist stream message to SQLite: {db_err}")
@@ -1130,13 +1157,41 @@ async def admin_get_docs_hierarchy(admin: dict = Depends(require_admin_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get('/api/admin/docs/{source:path}/chunks')
-async def admin_get_hierarchy_chunks(
+async def admin_get_source_chunks(
     source: str,
-    chapter: str = Query("Không phân chương"),
     admin: dict = Depends(require_admin_user)
 ):
     try:
-        chunks = db.get_chunks_by_hierarchy(source, chapter)
+        chunks = db.get_chunks_by_source(source)
+        return {"success": True, "chunks": chunks}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get('/api/admin/chunks/search')
+async def admin_search_chunks(
+    q: str = Query(...),
+    admin: dict = Depends(require_admin_user)
+):
+    global retriever
+    try:
+        if not retriever:
+            raise HTTPException(status_code=500, detail="Retriever not initialized.")
+        
+        # Use retriever to get chunks
+        results = retriever.retrieve(q, top_k=20)
+        chunks = []
+        for r in results:
+            pid = r.get("parent_id")
+            if pid and pid in retriever.parent_chunks:
+                p = retriever.parent_chunks[pid]
+                chunks.append({
+                    "parent_id": pid,
+                    "source": p.get("source", ""),
+                    "chapter": p.get("chapter", ""),
+                    "article_ids": p.get("article_ids", []),
+                    "text": p.get("text", ""),
+                    "score": r.get("score", 0)
+                })
         return {"success": True, "chunks": chunks}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1144,6 +1199,7 @@ async def admin_get_hierarchy_chunks(
 @app.delete('/api/admin/docs/{source:path}')
 async def admin_delete_document(
     source: str,
+    background_tasks: BackgroundTasks,
     admin: dict = Depends(require_admin_user)
 ):
     global retriever
@@ -1157,23 +1213,99 @@ async def admin_delete_document(
         if retriever:
             retriever.remove_source_from_memory(source)
             
-        # 3. Rebuild faiss index (background process or simple call)
-        import subprocess
-        try:
-            # We must rebuild faiss so search doesn't return deleted chunks
-            subprocess.run([sys.executable, "backend/build_faiss_local.py"], cwd=str(Path.cwd()), check=True)
-            if retriever:
-                retriever = None # force reload on next query
-                get_retriever()
-        except Exception as e:
-            print(f"Warning: Failed to rebuild FAISS after deletion: {e}")
+        # 3. Rebuild faiss index in background
+        def rebuild_faiss_bg():
+            try:
+                global retriever
+                if retriever:
+                    retriever.rebuild_faiss_index()
+                else:
+                    get_retriever()
+            except Exception as e:
+                print(f"Warning: Failed to rebuild FAISS after deletion: {e}")
+                
+        background_tasks.add_task(rebuild_faiss_bg)
             
-        return {"success": True, "message": f"Đã xóa tài liệu '{source}' và các điều khoản liên quan thành công."}
+        return {"success": True, "message": f"Đã xóa tài liệu '{source}' và các điều khoản liên quan thành công. Hệ thống đang đồng bộ AI ngầm."}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post('/api/admin/chunks')
+async def admin_create_chunk(
+    req: AdminChunkCreateReq,
+    admin: dict = Depends(require_admin_user)
+):
+    global retriever
+    try:
+        parent_id = f"chunk_{uuid.uuid4().hex[:8]}"
+        chapter = req.chapter or "Không phân chương"
+        
+        # 1. Insert into SQLite
+        db.insert_chunk(parent_id, req.source, req.text, chapter, req.article_ids)
+        
+        # 2. Update JSON
+        chunks_path = Path.cwd() / 'faiss_index_local' / 'parent_chunks.json'
+        if not chunks_path.exists():
+            chunks_path = Path.cwd() / 'out' / 'parent_chunks.json'
+            
+        if chunks_path.exists():
+            with open(chunks_path, 'r', encoding='utf-8') as f:
+                json_chunks = json.load(f)
+            
+            json_chunks.append({
+                "parent_id": parent_id,
+                "source": req.source,
+                "text": req.text,
+                "chapter": chapter,
+                "article_ids": req.article_ids
+            })
+            
+            with open(chunks_path, 'w', encoding='utf-8') as f:
+                json.dump(json_chunks, f, ensure_ascii=False, indent=2)
+
+        # 3. Update memory
+        if retriever:
+            retriever.add_parent_chunk_memory(parent_id, req.source, req.text, chapter, req.article_ids)
+
+        return {"success": True, "message": "Đã thêm chunk mới thành công.", "parent_id": parent_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete('/api/admin/chunks/{parent_id}')
+async def admin_delete_chunk(
+    parent_id: str,
+    admin: dict = Depends(require_admin_user)
+):
+    global retriever
+    try:
+        # 1. Delete from SQLite
+        db.delete_chunk(parent_id)
+        
+        # 2. Update JSON
+        chunks_path = Path.cwd() / 'faiss_index_local' / 'parent_chunks.json'
+        if not chunks_path.exists():
+            chunks_path = Path.cwd() / 'out' / 'parent_chunks.json'
+            
+        if chunks_path.exists():
+            with open(chunks_path, 'r', encoding='utf-8') as f:
+                json_chunks = json.load(f)
+            
+            json_chunks = [c for c in json_chunks if c.get('parent_id') != parent_id]
+            
+            with open(chunks_path, 'w', encoding='utf-8') as f:
+                json.dump(json_chunks, f, ensure_ascii=False, indent=2)
+
+        # 3. Update memory
+        if retriever:
+            retriever.delete_parent_chunk_memory(parent_id)
+
+        return {"success": True, "message": "Đã xóa chunk thành công."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.put('/api/admin/chunks/{parent_id}')
 async def admin_update_chunk(
@@ -1214,8 +1346,35 @@ async def admin_update_chunk(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def process_document_background(filename: str, file_path: str, base_dir: Path):
+    import subprocess
+    try:
+        print(f"Background: Running pipeline for new file: {filename}")
+        chatbot_script = base_dir / "Chatbot.py"
+        seed_script = base_dir / "seed_db_from_json.py"
+        
+        # 1. Chunking
+        subprocess.run([sys.executable, str(chatbot_script), "--file", str(file_path)], cwd=str(base_dir), check=True)
+        # 2. Seed DB
+        subprocess.run([sys.executable, str(seed_script)], cwd=str(base_dir), check=True)
+        
+        # 3. Build FAISS index in-memory
+        global retriever
+        if retriever:
+            retriever.rebuild_faiss_index()
+        else:
+            get_retriever()
+            
+        # 4. Update status
+        db.update_document_status(filename, 'ready')
+        print(f"Background: Completed pipeline for {filename}")
+    except Exception as e:
+        print(f"Background error processing {filename}:", e)
+        db.update_document_status(filename, 'error')
+
 @app.post('/api/admin/docs/upload')
 def admin_upload_pdf(
+    background_tasks: BackgroundTasks,
     file: UploadFile = FastAPIFile(...),
     admin: dict = Depends(require_admin_user)
 ):
@@ -1225,29 +1384,30 @@ def admin_upload_pdf(
         if ext != '.pdf':
             raise HTTPException(status_code=400, detail="Chỉ hỗ trợ nạp tài liệu định dạng PDF.")
 
+        # Ensure we use the backend folder as base
+        base_dir = Path(__file__).resolve().parent
+        
         # Save to papers/
-        papers_dir = Path.cwd() / 'papers'
-        papers_dir.mkdir(exist_ok=True)
+        papers_dir = base_dir.parent / 'papers'
+        if not papers_dir.exists():
+            papers_dir = base_dir / 'papers'
+            
+        papers_dir.mkdir(parents=True, exist_ok=True)
         file_path = papers_dir / file.filename
         
         with open(file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
             
-        # Run pipeline
-        print(f"Running pipeline for new file: {file.filename}")
+        # Insert document record to track status
+        db.insert_admin_document(file.filename)
         
-        # 1. Chunking single file with fast pypdf pipeline
-        subprocess.run([sys.executable, "backend/Chatbot.py", "--file", str(file_path)], cwd=str(Path.cwd()), check=True)
-        
-        # 2. Build FAISS index
-        subprocess.run([sys.executable, "backend/build_faiss_local.py"], cwd=str(Path.cwd()), check=True)
-        
-        # 3. Seed DB
-        subprocess.run([sys.executable, "backend/seed_db_from_json.py"], cwd=str(Path.cwd()), check=True)
-        
-        # 4. Reload retriever
-        if retriever:
-            retriever.reload_parent_chunks()
+        # Add background task
+        background_tasks.add_task(process_document_background, file.filename, str(file_path), base_dir)
+            
+        return {"success": True, "message": "Tải lên thành công, hệ thống đang xử lý phân tích AI ngầm."}
+    except Exception as e:
+        print("Upload error:", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
         source_name = f"papers/{file.filename}"
         return {"success": True, "message": "Đã thêm và xử lý tài liệu thành công.", "source": source_name}

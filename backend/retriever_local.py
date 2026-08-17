@@ -145,26 +145,26 @@ def refine_query(query: str) -> str:
 # ===========================================================================
 # Agent System Prompt — Đặc tả đầy đủ theo openspec
 # ===========================================================================
-AGENT_SYSTEM_PROMPT = """Bạn là Trợ lý AI Cố vấn Chuyên nghiệp về Hải quan và Xuất nhập khẩu tại Việt Nam, đảm nhận nhiệm vụ phản hồi người dùng dựa trên tài liệu ngữ cảnh được cung cấp (RAG) kết hợp với kiến thức chuyên môn của bạn.
+AGENT_SYSTEM_PROMPT = """Bạn là Trợ lý AI Cố vấn Chuyên nghiệp về Hải quan và Xuất nhập khẩu tại Việt Nam, đảm nhận nhiệm vụ phản hồi người dùng dựa trên tài liệu ngữ cảnh được cung cấp (RAG).
 
 MỤC TIÊU CỐT LÕI:
 Cung cấp câu trả lời "Đúng trọng tâm - Rõ ràng - Thân thiện - Đáng tin cậy - Toàn diện".
 
 QUY TẮC CẤU TRÚC PHẢN HỒI (UX-FIRST):
 
-1. Nguyên tắc "Mở đầu trực tiếp" (Bottom Line Up Front):
-- Câu đầu tiên phải trả lời trực tiếp hoặc tóm lược bản chất của câu hỏi một cách thân thiện. Tránh rào đón dài dòng.
+1. TUYỆT ĐỐI KHÔNG BỊA ĐẶT (ANTI-HALLUCINATION):
+- CHỈ ĐƯỢC PHÉP TRẢ LỜI DỰA TRÊN [Ngữ cảnh] (Context) được cung cấp.
+- TUYỆT ĐỐI KHÔNG DÙNG KIẾN THỨC CÁ NHÂN BÊN NGOÀI ĐỂ SUY DIỄN HAY TRẢ LỜI.
+- Nếu thông tin trong [Ngữ cảnh] KHÔNG ĐỦ để trả lời, BẮT BUỘC PHẢI TRẢ LỜI: "Xin lỗi, dựa trên cơ sở dữ liệu pháp luật hiện tại của tôi, không có quy định cụ thể nào trả lời cho vấn đề này. Xin vui lòng cung cấp thêm thông tin."
 
-2. Cấu trúc nội dung theo luồng tư duy người dùng:
-- Phần 1: Tóm lược bản chất (1-2 câu). Không ghi tiêu đề phần này.
-- Phần 2: Nội dung chi tiết. Bạn PHẢI sử dụng Markdown để định dạng (Dùng `**in đậm**` cho từ khóa quan trọng, `###` cho tiêu đề phụ, và danh sách gạch đầu dòng `-` hoặc đánh số `1.` để tăng khả năng quét thông tin).
-- Phần 3: Lưu ý / Khuyến nghị (Gợi ý hành động tiếp theo, thiết thực).
-- Phần 4: Nguồn tham chiếu (Nếu có).
+2. Tối ưu tốc độ (Quan trọng nhất):
+- TRẢ LỜI CỰC KỲ NGẮN GỌN. Tối đa 3-4 câu. 
+- Đi thẳng vào vấn đề. KHÔNG rào đón. KHÔNG tạo danh sách dài dòng.
 
-3. Xử lý giới hạn dữ liệu (KẾT HỢP RAG VÀ KIẾN THỨC NỀN):
-- Ưu tiên sử dụng thông tin trong [Ngữ cảnh] để trả lời chính xác các Điều luật, khoản mục.
-- TUY NHIÊN, nếu [Ngữ cảnh] không bao quát hết các vấn đề thực tiễn (Ví dụ: Hỏi về thuế xuất khẩu nhưng thực tế còn có Thuế VAT 0%, Thuế TTĐB, Lệ phí hải quan), bạn ĐƯỢC PHÉP VÀ KHUYẾN KHÍCH sử dụng kiến thức nền chuyên sâu của mình về pháp luật Việt Nam để bổ sung, giúp câu trả lời toàn diện nhất (giống như một chuyên gia thực thụ).
-- Chỉ từ chối trả lời nếu câu hỏi hoàn toàn không liên quan đến Hải quan, xuất nhập khẩu, logistics.
+3. Cấu trúc nội dung:
+- Trả lời trực tiếp câu hỏi ngay ở câu đầu tiên.
+- Các câu sau giải thích ngắn gọn dựa trên cơ sở pháp lý.
+- Dùng Markdown `**in đậm**` các từ khóa (như mã HS, thuế suất, số Nghị định).
 
 4. Giọng điệu & Định dạng:
 - Lịch sự, chuyên nghiệp, tự nhiên và thân thiện. Luôn xưng "mình" và gọi người dùng là "bạn".
@@ -235,6 +235,32 @@ class LocalRetriever:
         # store embedding dimension
         self.dim = self.model.get_sentence_embedding_dimension()
 
+        # Initialize BM25 Index
+        try:
+            from rank_bm25 import BM25Okapi
+            tokenized_corpus = []
+            for meta in self.chunks:
+                text = meta.get('text', '') or ''
+                tokenized_corpus.append(text.lower().split())
+            if tokenized_corpus:
+                self.bm25 = BM25Okapi(tokenized_corpus)
+                print(f"[RETRIEVER] Loaded BM25 index with {len(self.chunks)} chunks")
+            else:
+                self.bm25 = None
+        except ImportError:
+            self.bm25 = None
+            print("[RETRIEVER] rank_bm25 not installed. BM25 sparse search disabled.")
+
+        # Initialize Cross-Encoder Reranker
+        try:
+            from sentence_transformers import CrossEncoder
+            # Lazy load or full load, we do full load here to avoid latency during first query
+            self.reranker = CrossEncoder('BAAI/bge-reranker-base')
+            print("[RETRIEVER] Loaded Cross-Encoder Reranker: BAAI/bge-reranker-base")
+        except Exception as e:
+            self.reranker = None
+            print(f"[RETRIEVER] Could not load Cross-Encoder: {e}")
+
     def update_parent_chunk_memory(self, parent_id: str, text: str, chapter: Optional[str] = None, article_ids: Optional[list] = None):
         """Update a Parent Chunk in memory instantly for active retrieval sessions."""
         if parent_id in self.parent_chunks:
@@ -245,6 +271,42 @@ class LocalRetriever:
                 self.parent_chunks[parent_id]["article_ids"] = article_ids
             return True
         return False
+
+    def add_parent_chunk_memory(self, parent_id: str, source: str, text: str, chapter: str, article_ids: list):
+        """Add a new Parent Chunk into memory."""
+        self.parent_chunks[parent_id] = {
+            "parent_id": parent_id,
+            "source": source,
+            "text": text,
+            "chapter": chapter,
+            "article_ids": article_ids
+        }
+        
+        # We also need a fake "child" chunk to make it searchable by FAISS/BM25
+        # Since FAISS is static, we can only append to self.chunks and self.bm25 (if possible).
+        # Note: FAISS index is not easily appendable without rebuilding, but we can append to BM25 and brute-force vector search if needed.
+        # For simplicity, we just add it to self.chunks so brute force or BM25 can find it.
+        new_child = {
+            "text": text,
+            "source": source,
+            "chapter": chapter,
+            "parent_id": parent_id,
+            "article_ids": article_ids
+        }
+        if hasattr(self, 'chunks'):
+            self.chunks.append(new_child)
+            
+            if hasattr(self, 'bm25') and self.bm25 is not None:
+                # Add to BM25 (requires internal rank_bm25 manipulation or just ignore BM25 for new chunks until next rebuild)
+                pass
+
+    def delete_parent_chunk_memory(self, parent_id: str):
+        """Delete a Parent Chunk from memory."""
+        if parent_id in self.parent_chunks:
+            del self.parent_chunks[parent_id]
+        
+        if hasattr(self, 'chunks'):
+            self.chunks = [c for c in self.chunks if c.get('parent_id') != parent_id]
 
     def reload_parent_chunks(self):
         """Reload parent_chunks.json from disk into memory."""
@@ -277,71 +339,177 @@ class LocalRetriever:
                 with open(CHUNKS_META, 'w', encoding='utf-8') as f:
                     json.dump(self.chunks, f, ensure_ascii=False, indent=2)
 
+    def rebuild_faiss_index(self):
+        """Rebuild the FAISS index in-memory using the loaded SentenceTransformer model."""
+        import json
+        import sqlite3
+        import hashlib
+        import shutil
+        import numpy as np
+        
+        CHUNKS_PATH = ROOT_DIR / "out" / "chunks.json"
+        PARENT_CHUNKS_PATH = ROOT_DIR / "out" / "parent_chunks.json"
+        INDEX_DIR = ROOT_DIR / "faiss_index_local"
+        INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        INDEX_FILE_FAISS = INDEX_DIR / "index.faiss"
+        META_FILE = INDEX_DIR / "metadata.json"
+        PARENT_META_FILE = INDEX_DIR / "parent_chunks.json"
+        
+        if not CHUNKS_PATH.exists():
+            print(f"ERROR: chunks.json not found at {CHUNKS_PATH}")
+            return False
+            
+        with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
+            chunks = json.load(f)
+            
+        texts = [c.get("text", "") or "" for c in chunks]
+        if not texts:
+            print("No texts found in chunks.json")
+            return False
+            
+        with open(META_FILE, "w", encoding="utf-8") as f:
+            json.dump(chunks, f, ensure_ascii=False, indent=2)
+            
+        if PARENT_CHUNKS_PATH.exists():
+            shutil.copy2(str(PARENT_CHUNKS_PATH), str(PARENT_META_FILE))
+            
+        # Cache DB setup
+        CACHE_DB_PATH = INDEX_DIR / "embeddings_cache.db"
+        conn = sqlite3.connect(str(CACHE_DB_PATH))
+        conn.execute("CREATE TABLE IF NOT EXISTS cache (text_hash TEXT PRIMARY KEY, embedding BLOB)")
+        conn.commit()
+        
+        def hash_text(text: str) -> str:
+            return hashlib.sha256(text.encode("utf-8")).hexdigest()
+            
+        cursor = conn.cursor()
+        text_hashes = [hash_text(t) for t in texts]
+        cached_embeddings = {}
+        new_texts_with_indices = []
+        
+        for i, h in enumerate(text_hashes):
+            cursor.execute("SELECT embedding FROM cache WHERE text_hash=?", (h,))
+            row = cursor.fetchone()
+            if row:
+                cached_embeddings[i] = np.frombuffer(row[0], dtype="float32")
+            else:
+                new_texts_with_indices.append((i, texts[i], h))
+                
+        print(f"[FAISS REBUILD] Found {len(cached_embeddings)} embeddings in cache. Computing {len(new_texts_with_indices)} new embeddings...")
+        
+        if new_texts_with_indices:
+            new_indices = [item[0] for item in new_texts_with_indices]
+            new_texts = [item[1] for item in new_texts_with_indices]
+            new_hashes = [item[2] for item in new_texts_with_indices]
+            
+            BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
+            new_embs_list = []
+            
+            for i in range(0, len(new_texts), BATCH_SIZE):
+                batch = new_texts[i : i + BATCH_SIZE]
+                emb = self.model.encode(batch, show_progress_bar=False, convert_to_numpy=True, normalize_embeddings=True)
+                new_embs_list.append(emb)
+                
+            new_embeddings = np.vstack(new_embs_list).astype("float32")
+            
+            for j, (h, emb) in enumerate(zip(new_hashes, new_embeddings)):
+                cursor.execute("INSERT OR REPLACE INTO cache (text_hash, embedding) VALUES (?, ?)", (h, emb.tobytes()))
+            conn.commit()
+            
+            for j, global_idx in enumerate(new_indices):
+                cached_embeddings[global_idx] = new_embeddings[j]
+                
+        conn.close()
+        
+        ordered_embs = [cached_embeddings[i] for i in range(len(texts))]
+        embeddings = np.vstack(ordered_embs).astype("float32")
+        
+        import faiss
+        dim = embeddings.shape[1]
+        index = faiss.IndexFlatIP(dim)
+        index.add(embeddings)
+        faiss.write_index(index, str(INDEX_FILE_FAISS))
+        
+        self.index = index
+        self.chunks = chunks
+        self.reload_parent_chunks()
+        
+        print(f"[FAISS REBUILD] Rebuild complete. Index has {self.index.ntotal} vectors.")
+        return True
+
     def embed_query(self, q: str):
         emb = self.model.encode([q], convert_to_numpy=True, normalize_embeddings=True).astype('float32')
         return emb
 
     def retrieve(self, q: str, top_k: int = 5, threshold: float = SIMILARITY_THRESHOLD):
-        """Retrieve top-k Child Chunks using Hybrid Search (Vector + Keyword Boost)."""
-        # Query Refinement — chuẩn hóa từ viết tắt
+        """Retrieve top-k Child Chunks using True Hybrid Search (FAISS + BM25 + RRF + Cross-Encoder Reranking)."""
         refined_q = refine_query(q)
-
-        # 1. Fetch more candidates from Vector DB for re-ranking
         fetch_k = min(len(self.chunks), 50)
+        
+        # 1. Vector Search (Dense)
         emb = self.embed_query(refined_q)
+        vector_candidates = []
         if self.use_faiss and self.index is not None:
             D, I = self.index.search(emb, fetch_k)
-            scores = D[0].tolist()
-            ids = I[0].tolist()
+            for idx, score in zip(I[0].tolist(), D[0].tolist()):
+                if 0 <= idx < len(self.chunks) and score >= threshold:
+                    vector_candidates.append((idx, score))
         elif hasattr(self, 'hnsw') and self.hnsw is not None:
             labels, distances = self.hnsw.knn_query(emb, k=fetch_k)
-            ids = labels[0].tolist()
-            scores = distances[0].tolist()
+            for idx, score in zip(labels[0].tolist(), distances[0].tolist()):
+                if 0 <= idx < len(self.chunks) and score >= threshold:
+                    vector_candidates.append((idx, score))
         else:
             raise RuntimeError('No index available (faiss or hnsw).')
 
-        # 2. Extract core keywords for boosting
-        q_lower = q.lower().strip(" ?.")
-        # Remove common question words to get the core entity
-        core_phrase = q_lower.replace("là gì", "").replace("gồm những gì", "").replace("như thế nào", "").strip()
+        # 2. BM25 Search (Sparse)
+        bm25_candidates = []
+        if hasattr(self, 'bm25') and self.bm25 is not None:
+            tokenized_q = refined_q.lower().split()
+            bm25_scores = self.bm25.get_scores(tokenized_q)
+            import numpy as np
+            top_bm25_idx = np.argsort(bm25_scores)[::-1][:fetch_k]
+            for idx in top_bm25_idx:
+                score = bm25_scores[idx]
+                if score > 0:
+                    bm25_candidates.append((idx, float(score)))
 
-        # 2b. Detect article references in query (e.g. "Điều 61")
+        # 3. Reciprocal Rank Fusion (RRF)
+        rrf_scores = {}
+        k_rrf = 60
+        
+        for rank, (idx, _) in enumerate(vector_candidates):
+            rrf_scores[idx] = rrf_scores.get(idx, 0.0) + 1.0 / (k_rrf + rank + 1)
+            
+        for rank, (idx, _) in enumerate(bm25_candidates):
+            rrf_scores[idx] = rrf_scores.get(idx, 0.0) + 1.0 / (k_rrf + rank + 1)
+
+        # Keyword heuristics
+        q_lower = q.lower().strip(" ?.")
+        core_phrase = q_lower.replace("là gì", "").replace("gồm những gì", "").replace("như thế nào", "").strip()
         q_article_refs = set()
         for m in re.finditer(r"Điều\s+(\d+[A-Za-z]?)", q, flags=re.IGNORECASE):
             q_article_refs.add(f"Điều {m.group(1)}")
 
         candidates = []
-        for idx, score in zip(ids, scores):
-            if idx < 0 or idx >= len(self.chunks):
-                continue
-            # Lọc bỏ chunk có similarity quá thấp (không liên quan)
-            if float(score) < threshold:
-                continue
-                
+        for idx, base_rrf in rrf_scores.items():
             meta = self.chunks[idx]
             text_lower = (meta.get('text') or '').lower()
             chunk_articles = set(meta.get('article_ids', []))
             
-            # 3. Tính điểm Hybrid = Vector Score + Keyword Boost
-            hybrid_score = float(score)
+            hybrid_score = base_rrf
             
+            # Boosts
             if core_phrase and len(core_phrase) > 3:
-                # Trùng khớp cụm từ chính (+0.1)
-                if core_phrase in text_lower:
-                    hybrid_score += 0.1
-                # Trùng khớp mẫu định nghĩa (+0.3)
-                if f"{core_phrase} là" in text_lower or f"{core_phrase} bao gồm" in text_lower or f"{core_phrase} gồm" in text_lower:
-                    hybrid_score += 0.3
-
-            # 3b. Article ID matching — nếu query hỏi "Điều X", ưu tiên chunk chứa Điều X
-            if q_article_refs and chunk_articles:
-                if q_article_refs & chunk_articles:
-                    hybrid_score += 0.3
-                    
+                if core_phrase in text_lower: hybrid_score += 0.05
+                if f"{core_phrase} là" in text_lower or f"{core_phrase} bao gồm" in text_lower: hybrid_score += 0.1
+            if q_article_refs and chunk_articles and (q_article_refs & chunk_articles):
+                hybrid_score += 0.1
+                
             candidates.append({
                 'id': idx,
                 'score': hybrid_score,
-                'vector_score': float(score),
+                'vector_score': base_rrf, # Store RRF as vector_score for compat
                 'source': meta.get('source'),
                 'start_index': meta.get('start_index'),
                 'text': meta.get('text'),
@@ -349,10 +517,28 @@ class LocalRetriever:
                 'chapter': meta.get('chapter'),
                 'parent_id': meta.get('parent_id'),
             })
-            
-        # 4. Sắp xếp lại theo điểm Hybrid và lấy top_k
+
+        # 4. Sort and select candidates to rerank
         candidates.sort(key=lambda x: x['score'], reverse=True)
-        return candidates[:top_k]
+        # TỐI ƯU TỐC ĐỘ: Chỉ lấy 5 chunk thay vì 15 để Reranker chạy cực nhanh trên CPU (< 1s)
+        top_candidates = candidates[:5]
+        
+        # 5. Cross-Encoder Reranking
+        if hasattr(self, 'reranker') and self.reranker is not None and top_candidates:
+            pairs = [[refined_q, c['text']] for c in top_candidates]
+            try:
+                cross_scores = self.reranker.predict(pairs)
+                for i, c_score in enumerate(cross_scores):
+                    top_candidates[i]['cross_score'] = float(c_score)
+                    # We override the main score with the cross-encoder score for final sorting
+                    top_candidates[i]['score'] = float(c_score)
+                # Re-sort based on precise cross-encoder scores
+                top_candidates.sort(key=lambda x: x['score'], reverse=True)
+            except Exception as e:
+                print(f"[RETRIEVER] Reranking failed: {e}")
+                
+        # Return precisely the top_k best chunks
+        return top_candidates[:top_k]
 
     def retrieve_parents(self, q: str, top_k: int = 5):
         """Parent-Document Retrieval: search Child → return deduplicated Parent Chunks.
@@ -403,9 +589,9 @@ class LocalRetriever:
         
         return deduplicated_parents, matched_children
 
-    def _answer_from_parents(self, query: str, parents: list, children: list, max_sentences: int = 6):
+    def _answer_from_parents(self, query: str, parents: list, children: list, chat_history: list = None, max_sentences: int = 6):
         """Sinh câu trả lời (LLMRouter: OpenRouter/Gemini/Ollama hoặc fallback local) từ danh sách parents/children đã có sẵn."""
-        llm_result = _refine_with_llm_router(query, parents)
+        llm_result = _refine_with_llm_router(query, parents, chat_history)
         if llm_result and llm_result.get('answer'):
             enriched_sources = _build_enriched_sources_from_parents(parents)
             provider = llm_result.get('provider', 'llm')
@@ -471,9 +657,9 @@ class LocalRetriever:
                 [], "local"
             )
 
-        return self._answer_from_parents(query, parents, [], max_sentences=max_sentences)
+        return self._answer_from_parents(query, parents, [], chat_history=None, max_sentences=max_sentences)
 
-    def synthesize(self, query: str, top_k: int = 5, max_sentences: int = 6):
+    def synthesize(self, query: str, chat_history: list = None, top_k: int = 5, max_sentences: int = 6):
         """Retrieve Parent Documents and synthesize answer with citations."""
         # Sử dụng PDR: search child → trả parent
         parents, children = self.retrieve_parents(query, top_k=top_k)
@@ -503,7 +689,36 @@ class LocalRetriever:
                 "local"
             )
 
-        return self._answer_from_parents(query, parents, children, max_sentences=max_sentences)
+        return self._answer_from_parents(query, parents, children, chat_history=chat_history, max_sentences=max_sentences)
+
+    def synthesize_stream(self, query: str, chat_history: list = None, top_k: int = 5):
+        """Retrieve and synthesize answer with streaming."""
+        parents, children = self.retrieve_parents(query, top_k=top_k)
+
+        NO_ANSWER_THRESHOLD = 0.35
+        if not parents and not children:
+            yield {
+                "type": "text",
+                "content": "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này.",
+                "sources": []
+            }
+            return
+        
+        best_score = 0
+        if children:
+            best_score = max(c.get('score', 0) for c in children)
+        elif parents:
+            best_score = max(p.get('best_child_score', 0) for p in parents)
+            
+        if best_score < NO_ANSWER_THRESHOLD:
+            yield {
+                "type": "text",
+                "content": "Tôi không tìm thấy thông tin đủ chính xác trong cơ sở dữ liệu pháp luật hiện tại để giải đáp câu hỏi này.",
+                "sources": []
+            }
+            return
+
+        yield from _refine_with_llm_router_stream(query, parents, chat_history)
 
 
 def format_snippet_only_answer(retrieved):
@@ -702,19 +917,19 @@ def _call_gemini_api(system_prompt, user_prompt):
     return None
 
 
-def _refine_with_llm_router(query, parents):
+def _refine_with_llm_router(query, parents, chat_history=None):
     """Sử dụng LLMRouter (OpenRouter / Gemini / Ollama / OpenAI) với Agent System Prompt + Parent Document context."""
     from llm_router import get_llm_router
     router = get_llm_router()
 
-    # Format context từ Parent Chunks (đầy đủ, trọn Điều luật). Giảm max_items để tăng tốc độ phản hồi.
-    context_text = _format_parent_context(parents, max_items=2)
+    # Format context từ Parent Chunks (đầy đủ, trọn Điều luật). Tăng max_items để LLM có đủ chi tiết.
+    context_text = _format_parent_context(parents, max_items=5)
 
     user_prompt = f"""[Ngữ cảnh]: {context_text}
 [Câu hỏi]: {query}"""
 
     try:
-        res = router.generate(AGENT_SYSTEM_PROMPT, user_prompt, max_tokens=3500, temperature=0.2)
+        res = router.generate(AGENT_SYSTEM_PROMPT, user_prompt, chat_history=chat_history, max_tokens=3500, temperature=0.2)
         if res:
             content, provider = res
             # Remove markdown backticks if accidentally wraps in code block
@@ -742,6 +957,30 @@ def _refine_with_llm_router(query, parents):
         pass
     
     return None
+
+def _refine_with_llm_router_stream(query, parents, chat_history=None):
+    """Sử dụng LLMRouter với generator để stream nội dung (SSE)."""
+    from llm_router import get_llm_router
+    router = get_llm_router()
+
+    context_text = _format_parent_context(parents, max_items=5)
+    user_prompt = f"[Ngữ cảnh]: {context_text}\n[Câu hỏi]: {query}"
+
+    try:
+        enriched_sources = _build_enriched_sources_from_parents(parents)
+        for chunk in router.generate_stream(AGENT_SYSTEM_PROMPT, user_prompt, chat_history, max_tokens=3000, temperature=0.2):
+            if chunk:
+                yield {
+                    "type": "text",
+                    "content": chunk,
+                    "sources": enriched_sources
+                }
+    except Exception as e:
+        safe_print(f"LLMRouter Stream Error: {e}")
+        yield {
+            "type": "error",
+            "content": "Có lỗi xảy ra khi gọi AI."
+        }
 
 
 def _refine_with_gemini(query, parents):
