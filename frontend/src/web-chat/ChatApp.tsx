@@ -265,8 +265,30 @@ export default function App() {
     setIsGenerating(true);
 
     try {
-      // Call backend FastAPI (SQLite) for RAG + Gemini AI legal consultation
-      const res = await fetch('/api/chat', {
+      // Create a placeholder message for AI
+      const aiMsgId = `ai-${Date.now()}`;
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id === activeSession.id) {
+            return {
+              ...s,
+              messages: [
+                ...s.messages,
+                {
+                  id: aiMsgId,
+                  sender: 'ai',
+                  text: '',
+                  timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                },
+              ],
+            };
+          }
+          return s;
+        })
+      );
+
+      // Call backend FastAPI (SQLite) for RAG + AI Streaming
+      const res = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -276,38 +298,76 @@ export default function App() {
         }),
       });
 
-      const data = await res.json();
+      if (!res.body) throw new Error("No readable stream");
 
-      const aiMsg: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        text: data.reply || 'Đã phân tích xong câu hỏi pháp lý Hải quan của bạn.',
-        timestamp: new Date().toLocaleTimeString('vi-VN', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-        hsCode: data.hsCode || undefined,
-        taxes: data.taxes || undefined,
-        inspections: data.inspections || undefined,
-        citations: data.citations || undefined,
-        summaryPdf: data.summaryPdf || undefined,
-      };
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let doneReading = false;
+      let finalData: any = {};
+      let currentText = "";
 
-      const newCitations: LegalCitation[] = data.citations || [];
+      while (!doneReading) {
+        const { value, done } = await reader.read();
+        doneReading = done;
+        if (value) {
+          const chunkStr = decoder.decode(value, { stream: true });
+          const lines = chunkStr.split("\n\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const dataStr = line.slice(6);
+              if (!dataStr) continue;
+              try {
+                const parsed = JSON.parse(dataStr);
+                if (parsed.done) {
+                  finalData = parsed;
+                } else if (parsed.token) {
+                  currentText += parsed.token;
+                  setSessions((prev) =>
+                    prev.map((s) => {
+                      if (s.id === activeSession.id) {
+                        const msgs = [...s.messages];
+                        const idx = msgs.findIndex((m) => m.id === aiMsgId);
+                        if (idx !== -1) msgs[idx] = { ...msgs[idx], text: currentText };
+                        return { ...s, messages: msgs };
+                      }
+                      return s;
+                    })
+                  );
+                } else if (parsed.error) {
+                  currentText = parsed.error;
+                }
+              } catch (e) {
+                // Ignore incomplete JSON chunks in buffer if any
+              }
+            }
+          }
+        }
+      }
+
+      const newCitations: LegalCitation[] = finalData.citations || [];
 
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id === activeSession.id) {
-            const existingCodes = new Set(
-              (s.references || []).map((r) => r.code)
-            );
-            const uniqueNewCitations = newCitations.filter(
-              (c) => !existingCodes.has(c.code)
-            );
+            const msgs = [...s.messages];
+            const idx = msgs.findIndex((m) => m.id === aiMsgId);
+            if (idx !== -1) {
+              msgs[idx] = {
+                ...msgs[idx],
+                hsCode: finalData.hsCode || undefined,
+                taxes: finalData.taxes || undefined,
+                inspections: finalData.inspections || undefined,
+                citations: finalData.citations || undefined,
+                summaryPdf: finalData.summaryPdf || undefined,
+              };
+            }
+
+            const existingCodes = new Set((s.references || []).map((r) => r.code));
+            const uniqueNewCitations = newCitations.filter((c) => !existingCodes.has(c.code));
 
             return {
               ...s,
-              messages: [...s.messages, aiMsg],
+              messages: msgs,
               references: [...(s.references || []), ...uniqueNewCitations],
             };
           }

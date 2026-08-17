@@ -32,6 +32,18 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Hàm highlight các từ khóa luật (Điều, Khoản, Điểm, Nghị định...)
+  const highlightLegalTerms = (text: string) => {
+    if (!text) return null;
+    const parts = text.split(/(Điều \d+[a-z]?\.|Khoản \d+[a-z]?\.|Điểm [a-z]\.|Chương [IVXLCDM]+\.|Nghị định \d+\/\d+\/NĐ-CP|Thông tư \d+\/\d+\/TT-BTC|Luật số \d+\/\d+\/QH\d+)/gi);
+    return parts.map((part, index) => {
+      if (/(Điều \d+[a-z]?\.|Khoản \d+[a-z]?\.|Điểm [a-z]\.|Chương [IVXLCDM]+\.|Nghị định \d+\/\d+\/NĐ-CP|Thông tư \d+\/\d+\/TT-BTC|Luật số \d+\/\d+\/QH\d+)/i.test(part)) {
+        return <strong key={index} className="text-blue-700 font-bold bg-blue-50/50 px-0.5 rounded">{part}</strong>;
+      }
+      return part;
+    });
+  };
+
   return (
     <>
       <aside 
@@ -100,11 +112,11 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
                       onClick={() => setSelectedCitationModal(cite)}
                       className="font-bold text-sm text-slate-900 leading-snug mb-1.5 hover:text-blue-600 cursor-pointer transition-colors"
                     >
-                      {cite.title}
+                      {highlightLegalTerms(cite.title)}
                     </h4>
 
                     <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed mb-3">
-                      {cite.summary}
+                      {highlightLegalTerms(cite.summary)}
                     </p>
 
                     <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">

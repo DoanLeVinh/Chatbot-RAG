@@ -136,22 +136,36 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 <div className="bg-white border border-slate-200/60 rounded-[1.5rem] rounded-tl-sm p-5 md:p-6 text-slate-900 shadow-sm text-sm sm:text-base leading-relaxed space-y-4">
                   {/* Text Main */}
-                  <div className="text-sm sm:text-base leading-relaxed text-slate-800 whitespace-pre-wrap">
-                    <ReactMarkdown
-                      components={{
-                        p: ({node, ...props}) => <p className="mb-3 last:mb-0" {...props} />,
-                        strong: ({node, ...props}) => <strong className="font-bold text-slate-900" {...props} />,
-                        ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-3 space-y-1.5" {...props} />,
-                        ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-3 space-y-1.5" {...props} />,
-                        li: ({node, ...props}) => <li className="text-slate-700" {...props} />,
-                        h1: ({node, ...props}) => <h1 className="text-lg font-bold text-slate-900 mb-2 mt-4" {...props} />,
-                        h2: ({node, ...props}) => <h2 className="text-base font-bold text-slate-900 mb-2 mt-3" {...props} />,
-                        h3: ({node, ...props}) => <h3 className="text-sm font-bold text-slate-900 mb-2 mt-3" {...props} />,
-                        blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-400 pl-3 italic text-slate-600 bg-blue-50 py-1 pr-2 rounded-r" {...props} />,
-                      }}
-                    >
-                      {msg.text}
-                    </ReactMarkdown>
+                  <div className="text-sm sm:text-base leading-relaxed text-slate-800 whitespace-pre-wrap min-h-[1.5rem]">
+                    {isGenerating && msg.text === '' ? (
+                      <div className="flex gap-2 items-center h-full pt-1">
+                        <div className="w-2.5 h-2.5 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_2px_6px_rgba(59,130,246,0.4)]" />
+                        <div
+                          className="w-2.5 h-2.5 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_2px_6px_rgba(59,130,246,0.4)]"
+                          style={{ animationDelay: '0.2s' }}
+                        />
+                        <div
+                          className="w-2.5 h-2.5 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_2px_6px_rgba(59,130,246,0.4)]"
+                          style={{ animationDelay: '0.4s' }}
+                        />
+                      </div>
+                    ) : (
+                      <ReactMarkdown
+                        components={{
+                          p: ({node, ...props}) => <p className="mb-1.5 last:mb-0" {...props} />,
+                          strong: ({node, ...props}) => <strong className="font-bold text-slate-900" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-1.5 space-y-1" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-1.5 space-y-1" {...props} />,
+                          li: ({node, ...props}) => <li className="text-slate-700" {...props} />,
+                          h1: ({node, ...props}) => <h1 className="text-lg font-bold text-slate-900 mb-2 mt-3" {...props} />,
+                          h2: ({node, ...props}) => <h2 className="text-base font-bold text-slate-900 mb-1.5 mt-2.5" {...props} />,
+                          h3: ({node, ...props}) => <h3 className="text-sm font-bold text-slate-900 mb-1.5 mt-2.5" {...props} />,
+                          blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-400 pl-3 italic text-slate-600 bg-blue-50 py-1 pr-2 rounded-r my-1.5" {...props} />,
+                        }}
+                      >
+                        {msg.text}
+                      </ReactMarkdown>
+                    )}
                   </div>
 
                   {/* Taxes Breakdown if available */}
@@ -214,25 +228,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             );
           })}
 
-          {/* Generating Loading State */}
-          {isGenerating && (
-            <div className="flex gap-3 max-w-[85%]">
-              <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shrink-0 shadow-sm">
-                <Spinner size={16} weight="bold" className="animate-spin" />
-              </div>
-              <div className="bg-white border border-slate-200/60 rounded-[1.5rem] rounded-tl-sm px-6 py-4 flex gap-3 items-center shadow-sm">
-                <div className="w-3 h-3 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_4px_10px_rgba(59,130,246,0.5)]" />
-                <div
-                  className="w-3 h-3 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_4px_10px_rgba(59,130,246,0.5)]"
-                  style={{ animationDelay: '0.2s' }}
-                />
-                <div
-                  className="w-3 h-3 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_4px_10px_rgba(59,130,246,0.5)]"
-                  style={{ animationDelay: '0.4s' }}
-                />
-              </div>
-            </div>
-          )}
+
           <div ref={chatEndRef} />
           </div>
         </div>
