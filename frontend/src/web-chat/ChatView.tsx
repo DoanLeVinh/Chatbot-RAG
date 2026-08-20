@@ -30,17 +30,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isAutoScroll, setIsAutoScroll] = useState(true);
+
+  // Handle manual scroll to detect if user wants to stop auto-scrolling
+  const handleScroll = () => {
+    if (scrollContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      // If user scrolls up more than 100px from the bottom, disable auto-scroll
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      setIsAutoScroll(isNearBottom);
+    }
+  };
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isAutoScroll) {
+      // Use 'auto' instead of 'smooth' during generation to prevent jitter
+      chatEndRef.current?.scrollIntoView({ behavior: isGenerating ? 'auto' : 'smooth' });
+    }
   }, [session.messages, isGenerating]);
 
+  // Force auto-scroll on new message submission
   const handleInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !attachedFile) return;
     onSendMessage(inputText, attachedFile || undefined);
     setInputText('');
     setAttachedFile(null);
+    setIsAutoScroll(true);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -98,7 +115,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </header>
 
       {/* Scrollable Chat Area */}
-      <div className="flex-1 overflow-y-auto relative z-10 w-full" id="chat-container">
+      <div 
+        className="flex-1 overflow-y-auto relative z-10 w-full" 
+        id="chat-container"
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+      >
         <div className="max-w-5xl mx-auto px-4 pt-6 pb-6 w-full min-h-full">
           <div className="space-y-6">
           

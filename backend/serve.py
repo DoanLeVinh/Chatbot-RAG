@@ -326,7 +326,7 @@ async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_curre
         answer, sources, provider = r.synthesize_scoped(req.prompt, scoped_chunks, top_k=2, max_sentences=5)
     else:
         # Giảm top_k từ 5 xuống 2 để LLM không bị ngợp context, tăng tốc độ sinh chữ (giảm TTFT)
-        answer, sources, provider = r.synthesize(req.prompt, chat_history=chat_history, top_k=5, max_sentences=5)
+        answer, sources, provider = r.synthesize(req.prompt, chat_history=chat_history, top_k=3, max_sentences=5)
 
     # Extract structured data
     hs_code = _extract_hs_code(req.prompt + ' ' + answer)
@@ -386,7 +386,7 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
         chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
 
         # Consume the generator synchronously but yield async for SSE
-        for chunk in r.synthesize_stream(req.prompt, chat_history=chat_history, top_k=5):
+        for chunk in r.synthesize_stream(req.prompt, chat_history=chat_history, top_k=3):
             if chunk["type"] == "text":
                 text = chunk["content"]
                 full_answer += text
