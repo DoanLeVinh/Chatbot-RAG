@@ -1038,20 +1038,20 @@ def get_documents_hierarchy() -> List[Dict[str, Any]]:
         
         # Use documents table for primary tracking and left join chunks
         cursor.execute("""
-            SELECT d.filename, d.status, COUNT(c.parent_id) as chunk_count 
+            SELECT d.filename, d.status, COUNT(c.id) as chunk_count 
             FROM documents d
-            LEFT JOIN document_parent_chunks c ON c.source = 'papers/' || d.filename 
+            LEFT JOIN document_nodes c ON c.source = 'papers/' || d.filename 
             GROUP BY d.filename, d.status
             ORDER BY d.upload_date DESC;
         """)
         rows = cursor.fetchall()
         
         result = []
-        # Fallback for old documents that are in document_parent_chunks but not in documents table
-        # Find any distinct sources in document_parent_chunks that are not in documents
+        # Fallback for old documents that are in document_nodes but not in documents table
+        # Find any distinct sources in document_nodes that are not in documents
         cursor.execute("""
             SELECT source, COUNT(*) as chunk_count 
-            FROM document_parent_chunks 
+            FROM document_nodes 
             WHERE source NOT IN (SELECT 'papers/' || filename FROM documents)
             GROUP BY source;
         """)
@@ -1081,7 +1081,7 @@ def get_chunks_by_source(source: str) -> List[Dict[str, Any]]:
         cursor = conn.cursor()
         
         cursor.execute(
-            "SELECT * FROM document_nodes WHERE source = ? ORDER BY id;",
+            "SELECT * FROM document_nodes WHERE source = ? ORDER BY rowid;",
             (source,)
         )
             
@@ -1121,8 +1121,8 @@ def delete_document_by_source(source: str) -> bool:
         # Determine filename from source (e.g., 'papers/file.pdf' -> 'file.pdf')
         filename = source.replace("papers/", "") if source.startswith("papers/") else source
         
-        # 1. Delete from document_parent_chunks
-        cursor.execute("DELETE FROM document_parent_chunks WHERE source = ?;", (source,))
+        # 1. Delete from document_nodes
+        cursor.execute("DELETE FROM document_nodes WHERE source = ?;", (source,))
         deleted_parents = cursor.rowcount
         
         # 2. Delete from legacy document_chunks
