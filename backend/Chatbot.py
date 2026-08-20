@@ -153,8 +153,8 @@ class LegalSemanticParser:
             m_chap = re.match(r"(?i)^(CHƯƠNG\s+[IVXLCDM\d]+)[\.\:\s]*(.*)", line_s)
             m_sec = re.match(r"(?i)^(Mục\s+\d+)[\.\:\s]*(.*)", line_s)
             m_subsec = re.match(r"(?i)^(Tiểu\s+mục\s+\d+)[\.\:\s]*(.*)", line_s)
-            m_art = re.match(r"(?i)^(Điều\s+\d+[A-Za-z]?)\.[\s]*(.*)", line_s)
-            m_clause = re.match(r"^(\d+)\.\s+(.*)", line_s)
+            m_art = re.match(r"(?i)^(Điều\s+\d+[A-Za-z]?)[\.\:\s]+(.*)", line_s)
+            m_clause = re.match(r"^(\d+)[\.\)]\s+(.*)", line_s)
             m_app = re.match(r"(?i)^(Phụ\s+lục\s+[A-Za-z\d]+)[\.\:\s]*(.*)", line_s)
             m_form = re.match(r"(?i)^(Mẫu\s+số\s+[A-Za-z\d]+)[\.\:\s]*(.*)", line_s)
 
@@ -178,7 +178,16 @@ class LegalSemanticParser:
 
             if not matched:
                 if self.current_node:
-                    self.current_node["text_content"].append(line_s)
+                    title = self.current_node.get("title", "")
+                    # Nếu node hiện tại chưa có text_content, và title chưa kết thúc bằng dấu câu 
+                    # và dòng tiếp theo bắt đầu bằng chữ thường hoặc số -> Nối vào title
+                    if len(self.current_node["text_content"]) == 0 and title and not re.search(r'[\.\:\;]$', title):
+                        if line_s[0].islower() or line_s[0].isdigit():
+                            self.current_node["title"] += " " + line_s
+                        else:
+                            self.current_node["text_content"].append(line_s)
+                    else:
+                        self.current_node["text_content"].append(line_s)
                 else:
                     node = {
                         "id": str(uuid.uuid4()),
@@ -193,10 +202,45 @@ class LegalSemanticParser:
                     self.nodes.append(node)
                     self.current_node = node
                     
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+            separators=["\n\n", "\n", ". ", ", ", " ", ""]
+        )
+        
+        final_nodes = []
         for n in self.nodes:
-            n["text_content"] = "\n".join(n["text_content"])
-            n["sha256_hash"] = "" # calculated in seed DB
+            text = "\n".join(n["text_content"]) if isinstance(n["text_content"], list) else n["text_content"]
+            n["text_content"] = text
+            n["sha256_hash"] = ""
             
+            if len(text) > 1000:
+                chunks = splitter.split_text(text)
+                if len(chunks) > 1:
+                    # Giữ lại node cha nhưng xóa nội dung để không lưu duplicate
+                    n["text_content"] = ""
+                    final_nodes.append(n)
+                    for i, chunk_text in enumerate(chunks):
+                        child_title = f'{n["title"]} (Phần {i+1})' if n["title"] else f'Phần {i+1}'
+                        child_node = {
+                            "id": str(uuid.uuid4()),
+                            "parent_id": n["id"],
+                            "node_type": "text",
+                            "title": child_title,
+                            "text_content": chunk_text,
+                            "source": n["source"],
+                            "doc_number": n["doc_number"],
+                            "doc_type": n["doc_type"],
+                            "sha256_hash": ""
+                        }
+                        final_nodes.append(child_node)
+                else:
+                    final_nodes.append(n)
+            else:
+                final_nodes.append(n)
+                
+        self.nodes = final_nodes
         return self.nodes
 
 def process_single_pdf(file_path: str):
