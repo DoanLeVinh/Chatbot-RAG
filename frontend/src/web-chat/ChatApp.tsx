@@ -305,6 +305,7 @@ export default function App() {
       let doneReading = false;
       let finalData: any = {};
       let currentText = "";
+      let currentStage = "";
 
       while (!doneReading) {
         const { value, done } = await reader.read();
@@ -320,6 +321,20 @@ export default function App() {
                 const parsed = JSON.parse(dataStr);
                 if (parsed.done) {
                   finalData = parsed;
+                } else if (parsed.stage) {
+                  // Pipeline stage indicator
+                  currentStage = parsed.stage;
+                  setSessions((prev) =>
+                    prev.map((s) => {
+                      if (s.id === activeSession.id) {
+                        const msgs = [...s.messages];
+                        const idx = msgs.findIndex((m) => m.id === aiMsgId);
+                        if (idx !== -1) msgs[idx] = { ...msgs[idx], text: currentStage };
+                        return { ...s, messages: msgs };
+                      }
+                      return s;
+                    })
+                  );
                 } else if (parsed.token) {
                   currentText += parsed.token;
                   setSessions((prev) =>
