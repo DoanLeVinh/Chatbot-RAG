@@ -228,19 +228,19 @@ export default function App() {
 
     const systemNoticeMsg: ChatMessage | null = scopedRagJustEnabled
       ? {
-          id: `sys-${Date.now()}`,
-          sender: 'ai',
-          text: `🔒 Đã nhận và xử lý "${uploadedFile?.name}". Từ giờ trong cuộc trò chuyện này, tôi sẽ CHỈ trả lời dựa trên nội dung tài liệu bạn vừa tải lên. Nếu muốn hỏi về kho luật chung, hãy bắt đầu một "Trò chuyện mới".`,
-          timestamp: timestampStr,
-        }
+        id: `sys-${Date.now()}`,
+        sender: 'ai',
+        text: `🔒 Đã nhận và xử lý "${uploadedFile?.name}". Từ giờ trong cuộc trò chuyện này, tôi sẽ CHỈ trả lời dựa trên nội dung tài liệu bạn vừa tải lên. Nếu muốn hỏi về kho luật chung, hãy bắt đầu một "Trò chuyện mới".`,
+        timestamp: timestampStr,
+      }
       : scopedRagError
-      ? {
+        ? {
           id: `sys-${Date.now()}`,
           sender: 'ai',
           text: `⚠️ ${scopedRagError}`,
           timestamp: timestampStr,
         }
-      : null;
+        : null;
 
     // Update session with user message
     const updatedSessions = sessions.map((s) => {
@@ -305,7 +305,6 @@ export default function App() {
       let doneReading = false;
       let finalData: any = {};
       let currentText = "";
-      let currentStage = "";
 
       while (!doneReading) {
         const { value, done } = await reader.read();
@@ -321,20 +320,6 @@ export default function App() {
                 const parsed = JSON.parse(dataStr);
                 if (parsed.done) {
                   finalData = parsed;
-                } else if (parsed.stage) {
-                  // Pipeline stage indicator
-                  currentStage = parsed.stage;
-                  setSessions((prev) =>
-                    prev.map((s) => {
-                      if (s.id === activeSession.id) {
-                        const msgs = [...s.messages];
-                        const idx = msgs.findIndex((m) => m.id === aiMsgId);
-                        if (idx !== -1) msgs[idx] = { ...msgs[idx], text: currentStage };
-                        return { ...s, messages: msgs };
-                      }
-                      return s;
-                    })
-                  );
                 } else if (parsed.token) {
                   currentText += parsed.token;
                   setSessions((prev) =>
@@ -344,6 +329,22 @@ export default function App() {
                         const idx = msgs.findIndex((m) => m.id === aiMsgId);
                         if (idx !== -1) msgs[idx] = { ...msgs[idx], text: currentText };
                         return { ...s, messages: msgs };
+                      }
+                      return s;
+                    })
+                  );
+                } else if (parsed.citations) {
+                  const newCitations = parsed.citations;
+                  setIsReferencesOpen(true);
+                  setSessions((prev) =>
+                    prev.map((s) => {
+                      if (s.id === activeSession.id) {
+                        const existingCodes = new Set((s.references || []).map((r) => r.code));
+                        const uniqueNewCitations = newCitations.filter((c: any) => !existingCodes.has(c.code));
+                        return {
+                          ...s,
+                          references: [...(s.references || []), ...uniqueNewCitations],
+                        };
                       }
                       return s;
                     })
@@ -470,7 +471,7 @@ export default function App() {
     setCurrentUser(user);
     try {
       localStorage.setItem('logichat_user', JSON.stringify(user));
-    } catch {}
+    } catch { }
 
     setActiveScreen('chat');
     loadSessionsFromBackend();
@@ -480,7 +481,7 @@ export default function App() {
     setCurrentUser(null);
     try {
       localStorage.removeItem('logichat_user');
-    } catch {}
+    } catch { }
     loadSessionsFromBackend();
     setActiveScreen('landing');
   };
@@ -498,143 +499,143 @@ export default function App() {
       {isAppLoading && <LiquidLoader onComplete={() => setIsAppLoading(false)} />}
       <div className="min-h-[100dvh] bg-blue-50 text-slate-900 flex flex-col font-sans selection:bg-blue-200 selection:text-blue-600">
         {/* Screen 1: Landing Page */}
-      {activeScreen === 'landing' && (
-        <LandingPage
-          onStartChat={() => {
-            setActiveScreen('chat');
-          }}
-          onLoginClick={() => setAuthModal({ isOpen: true, mode: 'login' })}
-          onRegisterClick={() => setAuthModal({ isOpen: true, mode: 'register' })}
-          currentUser={currentUser}
-          onLogout={handleLogout}
-        />
-      )}
+        {activeScreen === 'landing' && (
+          <LandingPage
+            onStartChat={() => {
+              setActiveScreen('chat');
+            }}
+            onLoginClick={() => setAuthModal({ isOpen: true, mode: 'login' })}
+            onRegisterClick={() => setAuthModal({ isOpen: true, mode: 'register' })}
+            currentUser={currentUser}
+            onLogout={handleLogout}
+          />
+        )}
 
-      {/* Screen 2 & 3: Chat Application & History Workspace */}
-      {activeScreen !== 'landing' && (
-        <div className="flex h-screen w-full overflow-hidden relative">
-          
-          {/* Left Navigation Sidebar (Desktop) */}
-          {isDesktopSidebarOpen && (
-            <>
-              <Sidebar
-                sessions={sessions}
-                activeSessionId={activeSessionId}
-                activeScreen={activeScreen}
-                onSelectSession={(id) => {
-                  setActiveSessionId(id);
-                  setActiveScreen('chat');
-                }}
-                onNewChat={handleNewChat}
-                onNavigateScreen={(scr) => setActiveScreen(scr)}
-                onOpenSettings={() => setIsSettingsOpen(true)}
-                onDeleteSession={handleDeleteSession}
-                isMobileOpen={isMobileSidebarOpen}
-                onCloseMobile={() => setIsMobileSidebarOpen(false)}
-                currentUser={currentUser}
-                onLogout={handleLogout}
-                width={sidebarWidth}
-                onCloseDesktop={() => setIsDesktopSidebarOpen(false)}
-              />
-              <Resizer
-                direction="left"
-                onResize={setSidebarWidth}
-                minWidth={200}
-                maxWidth={500}
-              />
-            </>
-          )}
+        {/* Screen 2 & 3: Chat Application & History Workspace */}
+        {activeScreen !== 'landing' && (
+          <div className="flex h-screen w-full overflow-hidden relative">
 
-          {/* Main Content View */}
-          <div className="flex-1 flex flex-row h-full relative min-w-0 transition-none">
-            
-            {/* Toggle Sidebar Button when collapsed */}
-            {!isDesktopSidebarOpen && (
-              <button
-                onClick={() => setIsDesktopSidebarOpen(true)}
-                className="hidden md:flex absolute top-4 left-4 z-50 p-2 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 shadow-sm"
-                title="Mở thanh điều hướng"
-              >
-                <span className="material-symbols-outlined">menu</span>
-              </button>
-            )}
-
-            {activeScreen === 'chat' ? (
-              <ChatView
-                session={activeSession}
-                onSendMessage={handleSendMessage}
-                onToggleReferences={() => setIsReferencesOpen(!isReferencesOpen)}
-                isReferencesOpen={isReferencesOpen}
-                onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
-                onOpenPdfModal={openPdfModalFromMessage}
-                onCitationClick={handleCitationClick}
-                isGenerating={isGenerating}
-              />
-            ) : (
-              <HistoryView
-                sessions={sessions}
-                onSelectSession={(id) => {
-                  setActiveSessionId(id);
-                  setActiveScreen('chat');
-                }}
-                onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
-                onNewChat={handleNewChat}
-                onDeleteSession={handleDeleteSession}
-              />
-            )}
-
-            {/* Right Side References Panel in Chat mode */}
-            {activeScreen === 'chat' && isReferencesOpen && (
+            {/* Left Navigation Sidebar (Desktop) */}
+            {isDesktopSidebarOpen && (
               <>
-                <Resizer
-                  direction="right"
-                  onResize={setReferencePanelWidth}
-                  minWidth={250}
-                  maxWidth={800}
+                <Sidebar
+                  sessions={sessions}
+                  activeSessionId={activeSessionId}
+                  activeScreen={activeScreen}
+                  onSelectSession={(id) => {
+                    setActiveSessionId(id);
+                    setActiveScreen('chat');
+                  }}
+                  onNewChat={handleNewChat}
+                  onNavigateScreen={(scr) => setActiveScreen(scr)}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
+                  onDeleteSession={handleDeleteSession}
+                  isMobileOpen={isMobileSidebarOpen}
+                  onCloseMobile={() => setIsMobileSidebarOpen(false)}
+                  currentUser={currentUser}
+                  onLogout={handleLogout}
+                  width={sidebarWidth}
+                  onCloseDesktop={() => setIsDesktopSidebarOpen(false)}
                 />
-                <ReferencePanel
-                  isOpen={isReferencesOpen}
-                  onClose={() => setIsReferencesOpen(false)}
-                  citations={activeSession.references || []}
-                  attachments={activeSession.attachments}
-                  highlightedCitationId={highlightedCitationCode}
-                  onOpenPdfModal={(title, subtitle) =>
-                    setPdfModal({ isOpen: true, title, subtitle })
-                  }
-                  width={referencePanelWidth}
+                <Resizer
+                  direction="left"
+                  onResize={setSidebarWidth}
+                  minWidth={200}
+                  maxWidth={500}
                 />
               </>
             )}
+
+            {/* Main Content View */}
+            <div className="flex-1 flex flex-row h-full relative min-w-0 transition-none">
+
+              {/* Toggle Sidebar Button when collapsed */}
+              {!isDesktopSidebarOpen && (
+                <button
+                  onClick={() => setIsDesktopSidebarOpen(true)}
+                  className="hidden md:flex absolute top-4 left-4 z-50 p-2 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 shadow-sm"
+                  title="Mở thanh điều hướng"
+                >
+                  <span className="material-symbols-outlined">menu</span>
+                </button>
+              )}
+
+              {activeScreen === 'chat' ? (
+                <ChatView
+                  session={activeSession}
+                  onSendMessage={handleSendMessage}
+                  onToggleReferences={() => setIsReferencesOpen(!isReferencesOpen)}
+                  isReferencesOpen={isReferencesOpen}
+                  onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+                  onOpenPdfModal={openPdfModalFromMessage}
+                  onCitationClick={handleCitationClick}
+                  isGenerating={isGenerating}
+                />
+              ) : (
+                <HistoryView
+                  sessions={sessions}
+                  onSelectSession={(id) => {
+                    setActiveSessionId(id);
+                    setActiveScreen('chat');
+                  }}
+                  onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+                  onNewChat={handleNewChat}
+                  onDeleteSession={handleDeleteSession}
+                />
+              )}
+
+              {/* Right Side References Panel in Chat mode */}
+              {activeScreen === 'chat' && isReferencesOpen && (
+                <>
+                  <Resizer
+                    direction="right"
+                    onResize={setReferencePanelWidth}
+                    minWidth={250}
+                    maxWidth={800}
+                  />
+                  <ReferencePanel
+                    isOpen={isReferencesOpen}
+                    onClose={() => setIsReferencesOpen(false)}
+                    citations={activeSession.references || []}
+                    attachments={activeSession.attachments}
+                    highlightedCitationId={highlightedCitationCode}
+                    onOpenPdfModal={(title, subtitle) =>
+                      setPdfModal({ isOpen: true, title, subtitle })
+                    }
+                    width={referencePanelWidth}
+                  />
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Modals */}
-      <AuthModal
-        isOpen={authModal.isOpen}
-        initialMode={authModal.mode}
-        onClose={() => setAuthModal({ ...authModal, isOpen: false })}
-        onSuccess={(userName, userInfo) => {
-          handleAuthSuccess(userInfo || { fullName: userName });
-        }}
-      />
+        {/* Modals */}
+        <AuthModal
+          isOpen={authModal.isOpen}
+          initialMode={authModal.mode}
+          onClose={() => setAuthModal({ ...authModal, isOpen: false })}
+          onSuccess={(userName, userInfo) => {
+            handleAuthSuccess(userInfo || { fullName: userName });
+          }}
+        />
 
-      <PdfModal
-        isOpen={pdfModal.isOpen}
-        title={pdfModal.title}
-        subtitle={pdfModal.subtitle}
-        content={pdfModal.content}
-        hsCode={pdfModal.hsCode}
-        taxes={pdfModal.taxes}
-        citations={pdfModal.citations}
-        onClose={() => setPdfModal({ ...pdfModal, isOpen: false })}
-      />
+        <PdfModal
+          isOpen={pdfModal.isOpen}
+          title={pdfModal.title}
+          subtitle={pdfModal.subtitle}
+          content={pdfModal.content}
+          hsCode={pdfModal.hsCode}
+          taxes={pdfModal.taxes}
+          citations={pdfModal.citations}
+          onClose={() => setPdfModal({ ...pdfModal, isOpen: false })}
+        />
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
-    </div>
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      </div>
       {/* Global Water Ripple Effect */}
       <WaterRippleMouse />
     </>
