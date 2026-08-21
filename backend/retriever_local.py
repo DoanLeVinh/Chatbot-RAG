@@ -689,12 +689,25 @@ class LocalRetriever:
         """Retrieve and synthesize answer with streaming."""
         parents, children = self.retrieve_parents(query, top_k=top_k)
 
-        # Bỏ qua hardcoded threshold vì điểm số RRF/BGE CrossEncoder có scale khác nhau
-        # Để cho LLM tự quyết định xem Context có đủ để trả lời không (đã có trong System Prompt)
+        NO_ANSWER_THRESHOLD = 0.35
         if not parents and not children:
             yield {
                 "type": "text",
                 "content": "Xin lỗi bạn, dựa trên cơ sở dữ liệu pháp luật hiện tại của mình, không có quy định cụ thể nào khớp với vấn đề này.",
+                "sources": []
+            }
+            return
+        
+        best_score = 0
+        if children:
+            best_score = max(c.get('score', 0) for c in children)
+        elif parents:
+            best_score = max(p.get('best_child_score', 0) for p in parents)
+            
+        if best_score < NO_ANSWER_THRESHOLD:
+            yield {
+                "type": "text",
+                "content": "Tôi không tìm thấy thông tin đủ chính xác trong cơ sở dữ liệu pháp luật hiện tại để giải đáp câu hỏi này. Bạn có thể cung cấp thêm chi tiết được không?",
                 "sources": []
             }
             return
