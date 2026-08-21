@@ -661,7 +661,7 @@ class LocalRetriever:
         # --- Grounded Answer Boundary Check ---
         # Giảm NO_ANSWER_THRESHOLD từ 0.50 xuống 0.35 để cải thiện Recall
         # (câu hỏi tổng quát thường có score thấp hơn nhưng vẫn có thể trả lời được)
-        NO_ANSWER_THRESHOLD = 0.35
+        NO_ANSWER_THRESHOLD = 0.20
         if not parents and not children:
             return (
                 "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này. Vui lòng thử đặt câu hỏi cụ thể hơn hoặc cung cấp mã HS/tên hàng hóa.",
@@ -689,7 +689,7 @@ class LocalRetriever:
         """Retrieve and synthesize answer with streaming."""
         parents, children = self.retrieve_parents(query, top_k=top_k)
 
-        NO_ANSWER_THRESHOLD = 0.35
+        NO_ANSWER_THRESHOLD = 0.20
         if not parents and not children:
             yield {
                 "type": "text",

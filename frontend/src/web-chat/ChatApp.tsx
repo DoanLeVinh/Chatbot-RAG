@@ -349,6 +349,19 @@ export default function App() {
                       return s;
                     })
                   );
+                } else if (parsed.stage) {
+                  // Pipeline stage indicator: cập nhật AI message với nội dung stage
+                  setSessions((prev) =>
+                    prev.map((s) => {
+                      if (s.id === activeSession.id) {
+                        const msgs = [...s.messages];
+                        const idx = msgs.findIndex((m) => m.id === aiMsgId);
+                        if (idx !== -1) msgs[idx] = { ...msgs[idx], text: parsed.stage };
+                        return { ...s, messages: msgs };
+                      }
+                      return s;
+                    })
+                  );
                 } else if (parsed.error) {
                   currentText = parsed.error;
                 }

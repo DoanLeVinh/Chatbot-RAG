@@ -172,10 +172,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         />
                       </div>
                     ) : isGenerating && /^[🔍⚖️✍️]/.test(msg.text) && !msg.text.includes('\n') ? (
-                      /* Pipeline stage indicator */
-                      <div className="flex items-center gap-2 text-blue-600 animate-pulse">
-                        <Spinner size={18} className="animate-spin" />
-                        <span className="italic font-medium text-sm">{msg.text}</span>
+                      /* Pipeline stage indicator — hiệu ứng mượt hơn */
+                      <div className="flex items-center gap-3 py-1 animate-fadeIn">
+                        <div className="flex items-center gap-1">
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" style={{ animationDelay: '0.15s' }} />
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse" style={{ animationDelay: '0.3s' }} />
+                        </div>
+                        <span className="text-blue-600 font-semibold text-sm tracking-wide">{msg.text}</span>
                       </div>
                     ) : (
                       <ReactMarkdown
