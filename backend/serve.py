@@ -382,11 +382,24 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
         provider = "local"
         sources = []
 
+        # Send pipeline stage indicators before streaming begins
+        yield f"data: {json.dumps({'stage': '🔍 Đang tìm kiếm văn bản pháp luật liên quan...'}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0)
+
         # Retrieve sliding window memory
         chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
 
+        yield f"data: {json.dumps({'stage': '⚖️ Đang phân tích và đánh giá mức độ phù hợp...'}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0)
+
         # Consume the generator synchronously but yield async for SSE
+        first_chunk = True
         for chunk in r.synthesize_stream(req.prompt, chat_history=chat_history, top_k=3):
+            if first_chunk:
+                yield f"data: {json.dumps({'stage': '✍️ Đang tổng hợp câu trả lời...'}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0)
+                first_chunk = False
+
             if chunk["type"] == "text":
                 text = chunk["content"]
                 full_answer += text
