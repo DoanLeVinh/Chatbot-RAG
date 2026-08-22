@@ -149,15 +149,18 @@ AGENT_SYSTEM_PROMPT = """Bạn là Trợ lý AI Cố vấn Chuyên nghiệp về
 
 MỤC TIÊU CỐT LÕI (CÔNG THỨC 70-30):
 - 70% KIẾN THỨC TỪ HỆ THỐNG: Mọi căn cứ pháp lý, quy định, điều luật TUYỆT ĐỐI chỉ được trích xuất từ [Ngữ cảnh] (Context) được cung cấp. Tuyệt đối KHÔNG bịa đặt hay dùng kiến thức ngoài hệ thống để tự trả lời.
-- 30% TRÍ TUỆ CỦA BẠN (UX & NGÔN TỪ): Vận dụng khả năng tư duy tự nhiên để trau chuốt lời văn thật trôi chảy, thân thiện và lịch sự (luôn xưng "mình" và gọi người dùng là "bạn"). Khéo léo phân tích, tính toán, lập luận logic, giải quyết các bài tập tự luận/trắc nghiệm dựa vào kiến thức trong hệ thống một cách thông minh, dễ hiểu.
+- 30% TRÍ TUỆ CỦA BẠN (UX & NGÔN TỪ): Vận dụng khả năng tư duy tự nhiên để trau chuốt lời văn thật trôi chảy, thân thiện và lịch sự (luôn xưng "mình" và gọi người dùng là "bạn"). Khéo léo phân tích, tính toán, lập luận logic dựa vào kiến thức trong hệ thống.
 
-QUY TẮC PHẢN HỒI:
-1. Trả lời đúng trọng tâm câu hỏi. Giải thích cặn kẽ nhưng mạch lạc, cấu trúc rõ ràng.
-2. Trình bày thân thiện, tối ưu UX: Sử dụng danh sách (bullet points) khi cần liệt kê, dùng in đậm (`**text**`) để nhấn mạnh các từ khóa quan trọng (mã HS, tên Nghị định, số Điều). 
-3. Nếu người dùng hỏi bài tập hoặc trắc nghiệm, hãy step-by-step suy luận từ các điều khoản trong [Ngữ cảnh] để đưa ra đáp án chính xác nhất.
-4. LUÔN trích dẫn rõ nguồn ở cuối câu/đoạn khi trích xuất thông tin (VD: "Theo quy định tại Điều 17, Chương IV...").
-5. Nếu trong [Ngữ cảnh] KHÔNG ĐỦ để trả lời, BẮT BUỘC phải nói rõ: "Xin lỗi bạn, dựa trên cơ sở dữ liệu pháp luật hiện tại của mình, không có quy định cụ thể nào khớp với vấn đề này. Bạn có thể cung cấp thêm thông tin được không?"
-6. Không để lộ các từ khóa hệ thống, thẻ kỹ thuật (như metadata, chunk_id,...).
+QUY TẮC PHẢN HỒI (BẮT BUỘC):
+1. Trả lời CHI TIẾT, ĐẦY ĐỦ — liệt kê TẤT CẢ giấy tờ, bước thủ tục, điều kiện liên quan được tìm thấy trong [Ngữ cảnh]. KHÔNG được tóm tắt quá ngắn.
+2. Cấu trúc Markdown rõ ràng:
+   - Dùng heading `###` để chia các phần (VD: ### 1. Hồ sơ cần chuẩn bị, ### 2. Quy trình thực hiện)
+   - Dùng bullet points `-` hoặc danh sách số `1.` để liệt kê
+   - Dùng **in đậm** cho TẤT CẢ từ khóa pháp lý quan trọng: tên Nghị định, số Điều, mã HS, tên luật, thuật ngữ chuyên ngành
+3. LUÔN trích dẫn rõ nguồn: "*(Theo Điều 17, Nghị định 69/2018/NĐ-CP)*" sau mỗi thông tin quan trọng.
+4. Nếu người dùng hỏi bài tập/trắc nghiệm, step-by-step suy luận từ các điều khoản.
+5. Nếu [Ngữ cảnh] KHÔNG ĐỦ, nói rõ: "Xin lỗi bạn, dựa trên cơ sở dữ liệu pháp luật hiện tại của mình, không có quy định cụ thể nào khớp với vấn đề này."
+6. Không để lộ metadata, chunk_id, hay bất kỳ thẻ kỹ thuật nào.
 """
 
 
@@ -482,6 +485,8 @@ class LocalRetriever:
 
         candidates = []
         for idx, base_rrf in rrf_scores.items():
+            if idx < 0 or idx >= len(self.chunks):
+                continue  # Skip out-of-bounds indices (stale FAISS index vs metadata mismatch)
             meta = self.chunks[idx]
             text_lower = (meta.get('text') or '').lower()
             chunk_articles = set(meta.get('article_ids', []))
@@ -656,7 +661,7 @@ class LocalRetriever:
         # --- Grounded Answer Boundary Check ---
         # Giảm NO_ANSWER_THRESHOLD từ 0.50 xuống 0.35 để cải thiện Recall
         # (câu hỏi tổng quát thường có score thấp hơn nhưng vẫn có thể trả lời được)
-        NO_ANSWER_THRESHOLD = 0.35
+        NO_ANSWER_THRESHOLD = 0.20
         if not parents and not children:
             return (
                 "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này. Vui lòng thử đặt câu hỏi cụ thể hơn hoặc cung cấp mã HS/tên hàng hóa.",
@@ -684,11 +689,11 @@ class LocalRetriever:
         """Retrieve and synthesize answer with streaming."""
         parents, children = self.retrieve_parents(query, top_k=top_k)
 
-        NO_ANSWER_THRESHOLD = 0.35
+        NO_ANSWER_THRESHOLD = 0.20
         if not parents and not children:
             yield {
                 "type": "text",
-                "content": "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này.",
+                "content": "Xin lỗi bạn, dựa trên cơ sở dữ liệu pháp luật hiện tại của mình, không có quy định cụ thể nào khớp với vấn đề này.",
                 "sources": []
             }
             return
@@ -702,7 +707,7 @@ class LocalRetriever:
         if best_score < NO_ANSWER_THRESHOLD:
             yield {
                 "type": "text",
-                "content": "Tôi không tìm thấy thông tin đủ chính xác trong cơ sở dữ liệu pháp luật hiện tại để giải đáp câu hỏi này.",
+                "content": "Tôi không tìm thấy thông tin đủ chính xác trong cơ sở dữ liệu pháp luật hiện tại để giải đáp câu hỏi này. Bạn có thể cung cấp thêm chi tiết được không?",
                 "sources": []
             }
             return
@@ -815,8 +820,8 @@ def _format_parent_context(parents, max_items=6):
         article_text = f" | Điều: {', '.join(refs)}" if refs else ""
         chapter = parent.get("chapter")
         chapter_text = f" | {chapter}" if chapter else ""
-        # Lấy toàn bộ parent text (trọn Điều luật) — đây là lợi thế của PDR
-        lines.append(f"[Nguồn {i}] {src} | vị trí {start}{chapter_text}{article_text}\n{text[:2500]}")
+        # Giới hạn 1500 ký tự/parent để tiết kiệm token (đủ cho 1 Điều luật trung bình)
+        lines.append(f"[Nguồn {i}] {src} | vị trí {start}{chapter_text}{article_text}\n{text[:1500]}")
     return "\n\n".join(lines)
 
 
@@ -911,14 +916,14 @@ def _refine_with_llm_router(query, parents, chat_history=None):
     from llm_router import get_llm_router
     router = get_llm_router()
 
-    # Format context từ Parent Chunks (đầy đủ, trọn Điều luật). Tăng max_items để LLM có đủ chi tiết.
-    context_text = _format_parent_context(parents, max_items=5)
+    # Format context từ Parent Chunks — giới hạn 3 items để tiết kiệm token.
+    context_text = _format_parent_context(parents, max_items=3)
 
     user_prompt = f"""[Ngữ cảnh]: {context_text}
 [Câu hỏi]: {query}"""
 
     try:
-        res = router.generate(AGENT_SYSTEM_PROMPT, user_prompt, chat_history=chat_history, max_tokens=3500, temperature=0.2)
+        res = router.generate(AGENT_SYSTEM_PROMPT, user_prompt, chat_history=chat_history, max_tokens=2000, temperature=0.2)
         if res:
             content, provider = res
             # Remove markdown backticks if accidentally wraps in code block
@@ -952,12 +957,12 @@ def _refine_with_llm_router_stream(query, parents, chat_history=None):
     from llm_router import get_llm_router
     router = get_llm_router()
 
-    context_text = _format_parent_context(parents, max_items=5)
+    context_text = _format_parent_context(parents, max_items=3)
     user_prompt = f"[Ngữ cảnh]: {context_text}\n[Câu hỏi]: {query}"
 
     try:
         enriched_sources = _build_enriched_sources_from_parents(parents)
-        for chunk in router.generate_stream(AGENT_SYSTEM_PROMPT, user_prompt, chat_history, max_tokens=3000, temperature=0.2):
+        for chunk in router.generate_stream(AGENT_SYSTEM_PROMPT, user_prompt, chat_history, max_tokens=1800, temperature=0.2):
             if chunk:
                 yield {
                     "type": "text",
