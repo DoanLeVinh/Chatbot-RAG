@@ -73,6 +73,10 @@ if assets_dir.exists():
 app.mount('/uploads', StaticFiles(directory=str(UPLOADS_DIR)), name='uploads')
 app.mount('/frontend', StaticFiles(directory=str(static_dir)), name='frontend')
 
+PAPERS_DIR = ROOT_DIR / 'papers'
+if PAPERS_DIR.exists():
+    app.mount('/api/papers', StaticFiles(directory=str(PAPERS_DIR)), name='papers')
+
 retriever: Optional[LocalRetriever] = None
 
 
@@ -166,7 +170,6 @@ def _extract_inspection_info(text: str) -> Optional[dict]:
 
 def _build_legal_citations(sources: list) -> list:
     """Build LegalCitation objects matching the UI's LegalCitation interface."""
-    import re
     citations = []
     seen_sources = set()
 
@@ -196,16 +199,9 @@ def _build_legal_citations(sources: list) -> list:
         # SHA-256 hash preview
         raw_hash = db.calculate_sha256(text_snippet)
 
-        # Smart bullet-point summary extraction
-        summary_text = ""
-        if text_snippet:
-            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text_snippet) if len(s.strip()) > 20]
-            if sentences:
-                summary_text = "\n".join(f"• {s}" for s in sentences[:3])
-            else:
-                summary_text = text_snippet[:300] + '...'
-        else:
-            summary_text = f'Trích dẫn từ {source_name}'
+        # Determine valid pdfUrl if the source is a pdf
+        basename = Path(source_name).name if source_name else ''
+        pdf_url = f'/api/papers/{basename}' if basename.lower().endswith('.pdf') else '#'
 
         citations.append({
             'id': f'cit-{i}-{uuid.uuid4().hex[:6]}',
@@ -214,11 +210,11 @@ def _build_legal_citations(sources: list) -> list:
             'status': 'active',
             'statusLabel': 'Đang có hiệu lực',
             'enactmentDate': '',
-            'summary': summary_text,
+            'summary': (text_snippet[:300] + '...') if text_snippet and len(text_snippet) > 300 else (text_snippet if text_snippet else f'Trích dẫn từ {source_name}'),
             'fullText': text_snippet if text_snippet else None,
             'sha256': raw_hash,
             'verified': True,
-            'pdfUrl': f"/api/admin/docs/papers/{source_name}",
+            'pdfUrl': pdf_url,
         })
 
     return citations[:6]
@@ -393,34 +389,17 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
         full_answer = ""
         provider = "local"
         sources = []
-        # Send pipeline stage indicators before streaming begins
-        yield f"data: {json.dumps({'stage': '🔍 Đang tìm kiếm văn bản pháp luật liên quan...'}, ensure_ascii=False)}\n\n"
-        await asyncio.sleep(0)
 
         # Retrieve sliding window memory
         chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
 
-        yield f"data: {json.dumps({'stage': '⚖️ Đang phân tích và đánh giá mức độ phù hợp...'}, ensure_ascii=False)}\n\n"
-        await asyncio.sleep(0)
-
         # Consume the generator synchronously but yield async for SSE
-        first_chunk = True
         for chunk in r.synthesize_stream(req.prompt, chat_history=chat_history, top_k=3):
-            if first_chunk:
-                yield f"data: {json.dumps({'stage': '✍️ Đang tổng hợp câu trả lời...'}, ensure_ascii=False)}\n\n"
-                await asyncio.sleep(0)
-                first_chunk = False
             if chunk["type"] == "text":
                 text = chunk["content"]
                 full_answer += text
-                
-                if chunk.get("sources") and not sources:
+                if chunk.get("sources"):
                     sources = chunk["sources"]
-                    # Stream citations early to frontend
-                    early_citations = _build_legal_citations(sources)
-                    if early_citations:
-                        yield f"data: {json.dumps({'citations': early_citations}, ensure_ascii=False)}\n\n"
-                        await asyncio.sleep(0)
                 
                 payload = json.dumps({"token": text}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
