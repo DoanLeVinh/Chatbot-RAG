@@ -227,7 +227,6 @@ def _build_legal_citations(sources: list) -> list:
             'verified': True,
 
             'pdfUrl': pdf_url,
-            'pdfUrl': f"/api/admin/docs/papers/{source_name}",
         })
 
     return citations[:6]
