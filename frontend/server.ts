@@ -53,15 +53,17 @@ async function startServer() {
           'Connection': 'keep-alive',
         });
         if (response.body) {
-          const reader = response.body.getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              res.end();
-              break;
+          try {
+            const reader = response.body.getReader();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(value);
             }
-            res.write(value);
+          } catch (streamErr) {
+            console.error("SSE stream read error (non-fatal):", streamErr);
           }
+          res.end();
         } else {
           res.end();
         }
@@ -79,7 +81,9 @@ async function startServer() {
       }
     } catch (error: any) {
       console.error("Proxy error to backend:", error);
-      res.status(502).json({ error: "Backend không phản hồi. Vui lòng kiểm tra server Python." });
+      if (!res.headersSent) {
+        res.status(502).json({ error: "Backend không phản hồi. Vui lòng kiểm tra server Python." });
+      }
     }
   });
 

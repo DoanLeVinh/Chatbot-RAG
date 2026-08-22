@@ -1,24 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ChatSession, ChatMessage, LegalCitation } from '../shared/types';
+import { ChatSession, ChatMessage } from '../shared/types';
 import { RippleButton } from '../shared/components/RippleButton';
 import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor } from '@phosphor-icons/react';
-
-// Chuyển các số trích dẫn dạng "[1]", "[2]" xuất hiện ngay trong câu trả lời
-// thành link markdown đặc biệt "#cite-N", để custom renderer bên dưới biến
-// chúng thành nút bấm được — hiển thị đúng lúc câu chữ đang được "nhả" ra,
-// không cần đợi tin nhắn gõ xong.
-const linkifyInlineCitations = (text: string, citations?: LegalCitation[]): string => {
-  if (!text) return text;
-  return text.replace(/\[(\d{1,2})\]/g, (match, num) => {
-    const n = parseInt(num, 10);
-    // Chỉ biến thành link nếu đã có dữ liệu nguồn cho số đó (tránh biến
-    // nhầm các cặp ngoặc vuông khác không phải trích dẫn, vd danh sách [1] 2 3).
-    const hasCitation = citations?.some((c) => (c.refIndex ?? undefined) === n);
-    if (!hasCitation) return match;
-    return `[${num}](#cite-${num})`;
-  });
-};
 
 interface ChatViewProps {
   session: ChatSession;
@@ -172,9 +156,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <Anchor size={16} weight="fill" />
                 </div>
 
-                <div className="bg-white border border-slate-200/60 rounded-[1.5rem] rounded-tl-sm p-5 md:p-6 text-slate-900 shadow-sm text-sm sm:text-base leading-relaxed space-y-4">
+                <div className="bg-white border border-slate-200/60 rounded-[1.5rem] rounded-tl-sm p-4 md:p-5 text-slate-900 shadow-sm text-sm sm:text-base leading-snug space-y-1.5">
                   {/* Text Main */}
-                  <div className="text-sm sm:text-base leading-relaxed text-slate-800 whitespace-pre-wrap min-h-[1.5rem]">
+                  <div className="text-sm sm:text-base leading-snug text-slate-800 whitespace-pre-wrap min-h-[1.5rem] [&_li>p]:mb-0 [&_li>p]:inline-block [&_li]:mt-0.5">
                     {isGenerating && msg.text === '' ? (
                       <div className="flex gap-2 items-center h-full pt-1">
                         <div className="w-2.5 h-2.5 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_2px_6px_rgba(59,130,246,0.4)]" />
@@ -187,39 +171,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           style={{ animationDelay: '0.4s' }}
                         />
                       </div>
+                    ) : isGenerating && /^[🔍⚖️✍️]/.test(msg.text) && !msg.text.includes('\n') ? (
+                      /* Pipeline stage indicator — hiệu ứng mượt hơn */
+                      <div className="flex items-center gap-3 py-1 animate-fadeIn">
+                        <div className="flex items-center gap-1">
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" style={{ animationDelay: '0.15s' }} />
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse" style={{ animationDelay: '0.3s' }} />
+                        </div>
+                        <span className="text-blue-600 font-semibold text-sm tracking-wide">{msg.text}</span>
+                      </div>
                     ) : (
                       <ReactMarkdown
                         components={{
                           p: ({node, ...props}) => <p className="mb-1.5 last:mb-0" {...props} />,
-                          strong: ({node, ...props}) => <strong className="font-bold text-slate-900" {...props} />,
-                          ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-1.5 space-y-1" {...props} />,
-                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-1.5 space-y-1" {...props} />,
-                          li: ({node, ...props}) => <li className="text-slate-700" {...props} />,
-                          h1: ({node, ...props}) => <h1 className="text-lg font-bold text-slate-900 mb-2 mt-3" {...props} />,
-                          h2: ({node, ...props}) => <h2 className="text-base font-bold text-slate-900 mb-1.5 mt-2.5" {...props} />,
-                          h3: ({node, ...props}) => <h3 className="text-sm font-bold text-slate-900 mb-1.5 mt-2.5" {...props} />,
-                          blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-400 pl-3 italic text-slate-600 bg-blue-50 py-1 pr-2 rounded-r my-1.5" {...props} />,
-                          // Số trích dẫn inline [N] -> chip bấm được, nhảy tới nguồn tương ứng
-                          a: ({node, href, children, ...props}) => {
-                            if (href && href.startsWith('#cite-')) {
-                              const refIndex = parseInt(href.replace('#cite-', ''), 10);
-                              const citation = msg.citations?.find((c) => c.refIndex === refIndex);
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={() => citation && onCitationClick(citation.code)}
-                                  title={citation?.title || `Nguồn ${refIndex}`}
-                                  className="inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 mx-0.5 -translate-y-0.5 text-[10px] font-bold text-blue-700 bg-blue-100 rounded hover:bg-blue-200 hover:text-blue-900 transition-colors align-super cursor-pointer border border-blue-200"
-                                >
-                                  {refIndex}
-                                </button>
-                              );
-                            }
-                            return <a href={href} target="_blank" rel="noreferrer" className="text-blue-600 underline" {...props}>{children}</a>;
+                          strong: ({node, ...props}) => <strong className="font-bold text-blue-700" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-1.5 space-y-0" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-1.5 space-y-0" {...props} />,
+                          li: ({node, ...props}) => <li className="text-slate-800" {...props} />,
+                          h1: ({node, ...props}) => <h1 className="text-lg font-bold text-slate-900 mb-1 mt-2" {...props} />,
+                          h2: ({node, ...props}) => <h2 className="text-base font-bold text-slate-900 mb-1 mt-2" {...props} />,
+                          h3: ({node, ...props}) => <h3 className="text-sm font-bold text-blue-700 mb-1 mt-1.5" {...props} />,
+                          blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-400 pl-3 italic text-slate-600 bg-blue-50 py-1 pr-2 rounded-r my-1" {...props} />,
+                          code: ({node, className, children, ...props}) => {
+                            const isInline = !className;
+                            return isInline
+                              ? <code className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-xs font-semibold border border-blue-200/50" {...props}>{children}</code>
+                              : <code className={className} {...props}>{children}</code>;
                           },
+                          em: ({node, ...props}) => <em className="text-slate-500 text-xs" {...props} />,
                         }}
                       >
-                        {linkifyInlineCitations(msg.text, msg.citations)}
+                        {msg.text}
                       </ReactMarkdown>
                     )}
                   </div>

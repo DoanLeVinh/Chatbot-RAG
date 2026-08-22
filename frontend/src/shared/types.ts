@@ -1,6 +1,5 @@
 export interface LegalCitation {
   id: string;
-  refIndex?: number; // số thứ tự [N] xuất hiện inline trong câu trả lời, khớp với "Nguồn N"
   code: string; // e.g., "NĐ 119/2022/NĐ-CP" or "TT 04/2023/TT-BTTTT"
   title: string;
   status: 'active' | 'amended' | 'repealed'; // Green (active), Yellow (amended), Red (repealed)
