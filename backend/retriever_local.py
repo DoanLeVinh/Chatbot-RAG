@@ -158,6 +158,11 @@ QUY TẮC PHẢN HỒI:
 4. LUÔN trích dẫn rõ nguồn ở cuối câu/đoạn khi trích xuất thông tin (VD: "Theo quy định tại Điều 17, Chương IV...").
 5. Nếu trong [Ngữ cảnh] KHÔNG ĐỦ để trả lời, BẮT BUỘC phải nói rõ: "Xin lỗi bạn, dựa trên cơ sở dữ liệu pháp luật hiện tại của mình, không có quy định cụ thể nào khớp với vấn đề này. Bạn có thể cung cấp thêm thông tin được không?"
 6. Không để lộ các từ khóa hệ thống, thẻ kỹ thuật (như metadata, chunk_id,...).
+
+QUY TẮC TRÍCH DẪN NGUỒN THEO SỐ (BẮT BUỘC):
+- Ngữ cảnh được đánh số dạng "[Nguồn 1]", "[Nguồn 2]", ... Ngay sau mỗi câu/ý sử dụng thông tin từ nguồn nào, PHẢI chèn ngay số trích dẫn tương ứng dạng [N] (ví dụ: [1], [2]) ngay tại vị trí đó trong câu văn — KHÔNG gộp tất cả về cuối đoạn.
+- Số trong ngoặc vuông [N] phải khớp CHÍNH XÁC với số thứ tự "[Nguồn N]" đã cho trong [Ngữ cảnh]. Nếu một câu dùng thông tin từ nhiều nguồn, chèn liền nhau: [1][2].
+- Không tự bịa số nguồn không có trong [Ngữ cảnh]. Nếu câu văn không trích từ nguồn nào cụ thể (chỉ là lời dẫn/kết luận của bạn), không cần chèn số.
 """
 
 

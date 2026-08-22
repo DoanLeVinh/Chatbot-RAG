@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LegalCitation, Attachment } from '../shared/types';
 import { ShieldCheck, Copy, Check, ExternalLink, Download, X, FileText } from 'lucide-react';
 
@@ -10,6 +10,10 @@ interface ReferencePanelProps {
   highlightedCitationId?: string | null;
   onOpenPdfModal?: (title: string, subtitle?: string) => void;
   width?: number;
+  // Khi có giá trị, tự động mở modal "Xem chi tiết" (toàn văn tài liệu gốc)
+  // cho đúng trích dẫn này — dùng khi người dùng bấm số [N] ngay trong câu trả lời.
+  autoOpenCitationCode?: string | null;
+  onAutoOpenHandled?: () => void;
 }
 
 export const ReferencePanel: React.FC<ReferencePanelProps> = ({
@@ -20,9 +24,21 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
   highlightedCitationId,
   onOpenPdfModal,
   width = 340,
+  autoOpenCitationCode,
+  onAutoOpenHandled,
 }) => {
   const [selectedCitationModal, setSelectedCitationModal] = useState<LegalCitation | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Bấm số trích dẫn [N] trong câu trả lời -> tự mở modal toàn văn tài liệu gốc
+  useEffect(() => {
+    if (!autoOpenCitationCode) return;
+    const target = citations.find((c) => c.code === autoOpenCitationCode);
+    if (target) {
+      setSelectedCitationModal(target);
+    }
+    onAutoOpenHandled?.();
+  }, [autoOpenCitationCode]);
 
   if (!isOpen) return null;
 
@@ -238,13 +254,24 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
             </div>
 
             <div className="p-4 border-t border-slate-100 bg-slate-50/60 flex justify-between items-center">
-              <button
-                onClick={() => handleCopy(selectedCitationModal.id, `${selectedCitationModal.code}: ${selectedCitationModal.title}\n\n${selectedCitationModal.fullText || selectedCitationModal.summary}`)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Sao chép trích dẫn
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleCopy(selectedCitationModal.id, `${selectedCitationModal.code}: ${selectedCitationModal.title}\n\n${selectedCitationModal.fullText || selectedCitationModal.summary}`)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Sao chép
+                </button>
+                {selectedCitationModal.pdfUrl && selectedCitationModal.pdfUrl !== '#' && (
+                  <button
+                    onClick={() => window.open(selectedCitationModal.pdfUrl, '_blank')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 border border-blue-700 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Mở file PDF
+                  </button>
+                )}
+              </div>
 
               <button
                 onClick={() => setSelectedCitationModal(null)}

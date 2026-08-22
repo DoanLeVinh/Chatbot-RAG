@@ -9,6 +9,7 @@ Run:
 """
 from fastapi import FastAPI, Request, UploadFile, File as FastAPIFile, Header, HTTPException, Depends, Query, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
+import urllib.parse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any, AsyncGenerator
@@ -71,6 +72,9 @@ if assets_dir.exists():
 
 # Mount uploads for download
 app.mount('/uploads', StaticFiles(directory=str(UPLOADS_DIR)), name='uploads')
+papers_dir = ROOT_DIR / 'papers'
+if papers_dir.exists():
+    app.mount('/papers', StaticFiles(directory=str(papers_dir)), name='papers')
 app.mount('/frontend', StaticFiles(directory=str(static_dir)), name='frontend')
 
 retriever: Optional[LocalRetriever] = None
@@ -165,7 +169,12 @@ def _extract_inspection_info(text: str) -> Optional[dict]:
 
 
 def _build_legal_citations(sources: list) -> list:
-    """Build LegalCitation objects matching the UI's LegalCitation interface."""
+    """Build LegalCitation objects matching the UI's LegalCitation interface.
+
+    Mỗi citation giữ nguyên 'refIndex' = số thứ tự "[Nguồn N]" đã đưa cho LLM,
+    để frontend map chính xác số trích dẫn [N] xuất hiện trong câu trả lời
+    tới đúng nguồn (không bị lệch số khi có nguồn trùng tên bị bỏ qua).
+    """
     citations = []
     seen_sources = set()
 
@@ -173,7 +182,9 @@ def _build_legal_citations(sources: list) -> list:
         source_name = src.get('source', '') or ''
         if source_name.startswith('papers/') or source_name.startswith('papers\\'):
             source_name = source_name[7:]
-        
+
+        ref_index = src.get('rank', i + 1)
+
         if not source_name or source_name in seen_sources:
             continue
         seen_sources.add(source_name)
@@ -197,6 +208,7 @@ def _build_legal_citations(sources: list) -> list:
 
         citations.append({
             'id': f'cit-{i}-{uuid.uuid4().hex[:6]}',
+            'refIndex': ref_index,
             'code': code,
             'title': title,
             'status': 'active',
@@ -206,7 +218,7 @@ def _build_legal_citations(sources: list) -> list:
             'fullText': text_snippet if text_snippet else None,
             'sha256': raw_hash,
             'verified': True,
-            'pdfUrl': '#',
+            'pdfUrl': f"/papers/{urllib.parse.quote(source_name)}#search={urllib.parse.quote(text_snippet[:50].strip())}" if text_snippet else f"/papers/{urllib.parse.quote(source_name)}",
         })
 
     return citations[:6]
@@ -381,6 +393,7 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
         full_answer = ""
         provider = "local"
         sources = []
+        citations_sent = False
 
         # Retrieve sliding window memory
         chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
@@ -392,7 +405,15 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
                 full_answer += text
                 if chunk.get("sources"):
                     sources = chunk["sources"]
-                
+
+                # Gửi danh sách nguồn NGAY khi có (trước khi trả lời xong), để
+                # frontend có thể hiển thị nguồn [1][2] đúng lúc câu chữ nhả ra
+                # thay vì phải đợi tới cuối cùng.
+                if sources and not citations_sent:
+                    citations_sent = True
+                    early_citations = _build_legal_citations(sources)
+                    yield f"data: {json.dumps({'citations': early_citations}, ensure_ascii=False)}\n\n"
+
                 payload = json.dumps({"token": text}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
                 await asyncio.sleep(0) # Yield control

@@ -1,8 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ChatSession, ChatMessage } from '../shared/types';
+import { ChatSession, ChatMessage, LegalCitation } from '../shared/types';
 import { RippleButton } from '../shared/components/RippleButton';
 import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor } from '@phosphor-icons/react';
+
+// Chuyển các số trích dẫn dạng "[1]", "[2]" xuất hiện ngay trong câu trả lời
+// thành link markdown đặc biệt "#cite-N", để custom renderer bên dưới biến
+// chúng thành nút bấm được — hiển thị đúng lúc câu chữ đang được "nhả" ra,
+// không cần đợi tin nhắn gõ xong.
+const linkifyInlineCitations = (text: string, citations?: LegalCitation[]): string => {
+  if (!text) return text;
+  return text.replace(/\[(\d{1,2})\]/g, (match, num) => {
+    const n = parseInt(num, 10);
+    // Chỉ biến thành link nếu đã có dữ liệu nguồn cho số đó (tránh biến
+    // nhầm các cặp ngoặc vuông khác không phải trích dẫn, vd danh sách [1] 2 3).
+    const hasCitation = citations?.some((c) => (c.refIndex ?? undefined) === n);
+    if (!hasCitation) return match;
+    return `[${num}](#cite-${num})`;
+  });
+};
 
 interface ChatViewProps {
   session: ChatSession;
@@ -183,9 +199,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           h2: ({node, ...props}) => <h2 className="text-base font-bold text-slate-900 mb-1.5 mt-2.5" {...props} />,
                           h3: ({node, ...props}) => <h3 className="text-sm font-bold text-slate-900 mb-1.5 mt-2.5" {...props} />,
                           blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-400 pl-3 italic text-slate-600 bg-blue-50 py-1 pr-2 rounded-r my-1.5" {...props} />,
+                          // Số trích dẫn inline [N] -> chip bấm được, nhảy tới nguồn tương ứng
+                          a: ({node, href, children, ...props}) => {
+                            if (href && href.startsWith('#cite-')) {
+                              const refIndex = parseInt(href.replace('#cite-', ''), 10);
+                              const citation = msg.citations?.find((c) => c.refIndex === refIndex);
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => citation && onCitationClick(citation.code)}
+                                  title={citation?.title || `Nguồn ${refIndex}`}
+                                  className="inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 mx-0.5 -translate-y-0.5 text-[10px] font-bold text-blue-700 bg-blue-100 rounded hover:bg-blue-200 hover:text-blue-900 transition-colors align-super cursor-pointer border border-blue-200"
+                                >
+                                  {refIndex}
+                                </button>
+                              );
+                            }
+                            return <a href={href} target="_blank" rel="noreferrer" className="text-blue-600 underline" {...props}>{children}</a>;
+                          },
                         }}
                       >
-                        {msg.text}
+                        {linkifyInlineCitations(msg.text, msg.citations)}
                       </ReactMarkdown>
                     )}
                   </div>

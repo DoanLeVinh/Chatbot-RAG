@@ -95,6 +95,7 @@ export default function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [highlightedCitationCode, setHighlightedCitationCode] = useState<string | null>(null);
+  const [citationToAutoOpen, setCitationToAutoOpen] = useState<string | null>(null);
 
   // ─── Load User-Isolated Sessions from Backend ────────────────────
   const loadSessionsFromBackend = useCallback(async () => {
@@ -320,6 +321,28 @@ export default function App() {
                 const parsed = JSON.parse(dataStr);
                 if (parsed.done) {
                   finalData = parsed;
+                } else if (parsed.citations) {
+                  // Nguồn trích dẫn đến SỚM (trước khi trả lời xong) — gắn ngay
+                  // vào tin nhắn đang gõ để số [1][2] trong câu chữ có thể bấm được
+                  // ngay lúc đang stream, không phải đợi tới lúc trả lời xong.
+                  const earlyCitations: LegalCitation[] = parsed.citations;
+                  finalData.citations = earlyCitations;
+                  setSessions((prev) =>
+                    prev.map((s) => {
+                      if (s.id !== activeSession.id) return s;
+                      const msgs = [...s.messages];
+                      const idx = msgs.findIndex((m) => m.id === aiMsgId);
+                      if (idx !== -1) msgs[idx] = { ...msgs[idx], citations: earlyCitations };
+
+                      const existingCodes = new Set((s.references || []).map((r) => r.code));
+                      const uniqueNewCitations = earlyCitations.filter((c) => !existingCodes.has(c.code));
+                      return {
+                        ...s,
+                        messages: msgs,
+                        references: [...(s.references || []), ...uniqueNewCitations],
+                      };
+                    })
+                  );
                 } else if (parsed.token) {
                   currentText += parsed.token;
                   setSessions((prev) =>
@@ -473,6 +496,8 @@ export default function App() {
   const handleCitationClick = (citationCode: string) => {
     setIsReferencesOpen(true);
     setHighlightedCitationCode(citationCode);
+    // Mở luôn modal "Xem chi tiết" (toàn văn tài liệu gốc) của đúng nguồn này
+    setCitationToAutoOpen(citationCode);
     setTimeout(() => {
       setHighlightedCitationCode(null);
     }, 4000);
@@ -587,6 +612,8 @@ export default function App() {
                     setPdfModal({ isOpen: true, title, subtitle })
                   }
                   width={referencePanelWidth}
+                  autoOpenCitationCode={citationToAutoOpen}
+                  onAutoOpenHandled={() => setCitationToAutoOpen(null)}
                 />
               </>
             )}
