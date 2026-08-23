@@ -179,9 +179,8 @@ def _build_legal_citations(sources: list) -> list:
         if source_name.startswith('papers/') or source_name.startswith('papers\\'):
             source_name = source_name[7:]
         
-        if not source_name or source_name in seen_sources:
+        if not source_name:
             continue
-        seen_sources.add(source_name)
 
         article_refs = src.get('article_refs', [])
         text_snippet = src.get('text', '') or ''
@@ -203,6 +202,24 @@ def _build_legal_citations(sources: list) -> list:
         # Determine valid pdfUrl if the source is a pdf
         basename = Path(source_name).name if source_name else ''
         pdf_url = f'/api/papers/{basename}' if basename.lower().endswith('.pdf') else '#'
+        
+        # Thêm text fragment search để PDF Viewer tự động tô vàng (highlight)
+        if pdf_url != '#' and text_snippet:
+            import urllib.parse
+            search_query = ""
+            if article_refs:
+                # Nếu có tên Điều luật (VD: "Điều 15"), dùng nó làm từ khóa tìm kiếm vì nó rất chính xác
+                search_query = f'"{article_refs[0]}"'
+            else:
+                # Fallback: Lấy 5 từ đầu tiên của câu dài nhất
+                valid_sents = [s for s in re.split(r'(?<=[.!?])\s+', text_snippet) if len(s.strip()) > 30]
+                if valid_sents:
+                    best_sent = max(valid_sents, key=len).strip()
+                    words = re.sub(r'[^\w\s]', '', best_sent).split()
+                    search_query = f'"{" ".join(words[:5])}"'
+            
+            if search_query:
+                pdf_url += f'#search={urllib.parse.quote(search_query)}'
         # Smart bullet-point summary extraction
         summary_text = ""
         if text_snippet:

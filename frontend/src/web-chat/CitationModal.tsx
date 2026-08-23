@@ -21,6 +21,17 @@ export const CitationModal: React.FC<CitationModalProps> = ({
     : [];
   const [activeTab, setActiveTab] = useState(jumpTabs[0] || '');
 
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (scrollRef.current) {
+      const mark = scrollRef.current.querySelector('mark');
+      if (mark) {
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [activeTab]);
+
   const highlightText = (text: string, keyword: string) => {
     if (!keyword) return <>{text}</>;
     const parts = text.split(new RegExp(`(${keyword})`, 'gi'));
@@ -71,46 +82,36 @@ export const CitationModal: React.FC<CitationModalProps> = ({
             </span>
           </div>
 
-          {/* Summary */}
-          <div>
-            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500 mb-1.5">
-              Tóm tắt quy định
-            </h4>
-            <div className="text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200/70 text-xs leading-relaxed whitespace-pre-wrap">
-              {citation.summary}
-            </div>
-          </div>
+          {/* Summary section removed because it naively extracts first 3 sentences which might not match AI's actual reference */}
 
           {/* Full Text with Jump Tabs */}
-          {citation.fullText && (
-            <div className="flex flex-col h-full">
-              <div className="flex justify-between items-end mb-2">
-                <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500">
-                  Toàn văn / Điều khoản chi tiết
-                </h4>
-                {jumpTabs.length > 0 && (
-                  <div className="flex gap-1.5">
-                    {jumpTabs.map((tab) => (
-                      <button
-                        key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={`px-2 py-1 text-[10px] font-bold rounded-md transition-colors ${
-                          activeTab === tab
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                        }`}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
-                {highlightText(citation.fullText, activeTab)}
-              </div>
+          <div className="flex flex-col h-full">
+            <div className="flex justify-between items-end mb-2">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500">
+                Toàn văn / Điều khoản chi tiết
+              </h4>
+              {jumpTabs.length > 0 && (
+                <div className="flex gap-1.5">
+                  {jumpTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`px-2 py-1 text-[10px] font-bold rounded-md transition-colors ${
+                        activeTab === tab
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+            <div ref={scrollRef} className="p-4 bg-slate-50 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
+              {highlightText(citation.fullText || citation.summary || 'Không có dữ liệu toàn văn', activeTab)}
+            </div>
+          </div>
         </div>
 
         {/* Footer */}

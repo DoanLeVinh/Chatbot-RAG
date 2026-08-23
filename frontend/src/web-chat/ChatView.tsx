@@ -200,9 +200,41 @@ export const ChatView: React.FC<ChatViewProps> = ({
                               : <code className={className} {...props}>{children}</code>;
                           },
                           em: ({node, ...props}) => <em className="text-slate-500 text-xs" {...props} />,
+                          a: ({node, href, children, ...props}) => {
+                            if (href?.startsWith('#citation-')) {
+                              const idxStr = href.replace('#citation-', '');
+                              const numIdx = parseInt(idxStr, 10) - 1;
+                              const ref = msg.citations?.find(c => c.id.startsWith(`cit-${numIdx}-`));
+                              
+                              if (ref?.pdfUrl && ref.pdfUrl !== '#') {
+                                return (
+                                  <a
+                                    href={ref.pdfUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center justify-center w-5 h-5 ml-1 text-[10px] font-bold text-white bg-blue-500 rounded-full hover:bg-blue-600 shadow-sm align-middle hover:scale-110 transition-transform no-underline"
+                                    title={`Xem bản gốc: ${ref.title}`}
+                                  >
+                                    {idxStr}
+                                  </a>
+                                );
+                              }
+
+                              return (
+                                <button
+                                  onClick={(e) => { e.preventDefault(); if (ref?.code) onCitationClick(ref.code); }}
+                                  className="inline-flex items-center justify-center w-5 h-5 ml-1 text-[10px] font-bold text-white bg-blue-500 rounded-full hover:bg-blue-600 cursor-pointer shadow-sm align-middle hover:scale-110 transition-transform"
+                                  title={ref ? ref.title : `Nguồn ${idxStr}`}
+                                >
+                                  {idxStr}
+                                </button>
+                              );
+                            }
+                            return <a href={href} className="text-blue-600 underline" {...props}>{children}</a>;
+                          },
                         }}
                       >
-                        {msg.text}
+                        {msg.text.replace(/\[\s*(?:Nguồn\s*)?(\d+)\s*\]/gi, '[$1](#citation-$1)')}
                       </ReactMarkdown>
                     )}
                   </div>

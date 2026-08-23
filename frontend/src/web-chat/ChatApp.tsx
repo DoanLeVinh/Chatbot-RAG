@@ -341,8 +341,14 @@ export default function App() {
                       if (s.id === activeSession.id) {
                         const existingCodes = new Set((s.references || []).map((r) => r.code));
                         const uniqueNewCitations = newCitations.filter((c: any) => !existingCodes.has(c.code));
+                        const msgs = [...s.messages];
+                        const idx = msgs.findIndex((m) => m.id === aiMsgId);
+                        if (idx !== -1) {
+                          msgs[idx] = { ...msgs[idx], citations: newCitations };
+                        }
                         return {
                           ...s,
+                          messages: msgs,
                           references: [...(s.references || []), ...uniqueNewCitations],
                         };
                       }
