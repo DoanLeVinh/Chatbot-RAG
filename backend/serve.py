@@ -803,9 +803,31 @@ async def upload_file(
     # Save to SQLite
     attachment = db.save_attachment(sessionId, effective_user_id, file.filename, size_str, file_type, file_url)
 
-    # Xử lý nội dung file cho tính năng "Chat theo phạm vi tài liệu" (PDF/TXT)
+    # Xử lý nội dung file
     scoped_ready = False
     scoped_error = None
+    extracted_text = None
+    
+    if file_type == 'image':
+        try:
+            import base64
+            from llm_router import get_llm_router
+            router = get_llm_router()
+            image_b64 = base64.b64encode(content).decode('utf-8')
+            mime_type = "image/jpeg"
+            if ext == '.png': mime_type = "image/png"
+            elif ext == '.webp': mime_type = "image/webp"
+            elif ext == '.gif': mime_type = "image/gif"
+            
+            extracted = router.extract_text_from_image(image_b64, mime_type)
+            if extracted:
+                extracted_text = extracted
+                print(f"[Upload] Đã trích xuất thành công chữ từ ảnh {file.filename}")
+            else:
+                print(f"[Upload] Không trích xuất được chữ từ ảnh {file.filename} (không có phản hồi từ LLM)")
+        except Exception as e:
+            print(f"[Upload] Lỗi trích xuất chữ từ ảnh {file.filename}: {e}")
+
     if sessionId:
         if ext in ('.pdf', '.txt'):
             scoped_ready = _process_session_document_for_rag(sessionId, file.filename, file_path, ext)
@@ -814,7 +836,7 @@ async def upload_file(
                     "Không trích xuất được nội dung văn bản từ tệp này (có thể là PDF dạng ảnh/scan "
                     "không có lớp chữ). Chat sẽ KHÔNG bị giới hạn theo tệp này."
                 )
-        else:
+        elif file_type != 'image':
             scoped_error = (
                 f"Định dạng {ext} chưa hỗ trợ 'Chat theo phạm vi tài liệu'. "
                 f"Hiện chỉ hỗ trợ .pdf và .txt. Chat sẽ KHÔNG bị giới hạn theo tệp này."
@@ -825,6 +847,7 @@ async def upload_file(
         'file': attachment,
         'scopedRagEnabled': scoped_ready,
         'scopedRagError': scoped_error,
+        'extractedText': extracted_text,
     })
 
 

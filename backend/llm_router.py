@@ -126,14 +126,29 @@ class LLMRouter:
             f"Ollama Host={self.ollama_host}, Order={self.provider_order}"
         )
 
-    def _build_messages(self, system_prompt: str, user_prompt: str, chat_history: list = None) -> list:
+    def _build_messages(self, system_prompt: str, user_prompt: str, chat_history: list = None, image_data: str = None, mime_type: str = "image/jpeg") -> list:
         msgs = [{"role": "system", "content": system_prompt}]
         if chat_history:
             msgs.extend(chat_history)
-        msgs.append({"role": "user", "content": user_prompt})
+        
+        if image_data:
+            msgs.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{image_data}"
+                        }
+                    }
+                ]
+            })
+        else:
+            msgs.append({"role": "user", "content": user_prompt})
         return msgs
 
-    def _call_openrouter(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 3000, temperature: float = 0.2) -> Optional[Tuple[str, str]]:
+    def _call_openrouter(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 3000, temperature: float = 0.2, image_data: str = None, mime_type: str = "image/jpeg") -> Optional[Tuple[str, str]]:
         """Call OpenRouter with active key rotation and model fallback."""
         available_keys = [k for k in self.openrouter_keys if k.is_available]
         if not available_keys:
@@ -153,7 +168,10 @@ class LLMRouter:
                     "model": model_name,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
-                    "messages": self._build_messages(system_prompt, user_prompt, chat_history)
+                    "frequency_penalty": 0.2,
+                    "presence_penalty": 0.2,
+                    "top_p": 0.9,
+                    "messages": self._build_messages(system_prompt, user_prompt, chat_history, image_data, mime_type)
                 }
                 req = urllib.request.Request(
                     url,
@@ -216,6 +234,9 @@ class LLMRouter:
                     "model": model_name,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
+                    "frequency_penalty": 0.2,
+                    "presence_penalty": 0.2,
+                    "top_p": 0.9,
                     "messages": self._build_messages(system_prompt, user_prompt, chat_history),
                     "stream": True
                 }
@@ -260,7 +281,7 @@ class LLMRouter:
                     continue
         raise Exception("All OpenRouter keys or models exhausted for streaming")
 
-    def _call_gemini(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 4096, temperature: float = 0.2) -> Optional[Tuple[str, str]]:
+    def _call_gemini(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 4096, temperature: float = 0.2, image_data: str = None, mime_type: str = "image/jpeg") -> Optional[Tuple[str, str]]:
         """Call Google Gemini API with active key rotation and model fallback."""
         available_keys = [k for k in self.gemini_keys if k.is_available]
         if not available_keys:
@@ -284,7 +305,17 @@ class LLMRouter:
                 for h in chat_history:
                     role = "model" if h.get("role") == "assistant" else "user"
                     payload["contents"].append({"role": role, "parts": [{"text": h.get("content", "")}]})
-            payload["contents"].append({"role": "user", "parts": [{"text": user_prompt}]})
+            
+            user_parts = []
+            if image_data:
+                user_parts.append({
+                    "inlineData": {
+                        "mimeType": mime_type,
+                        "data": image_data
+                    }
+                })
+            user_parts.append({"text": user_prompt})
+            payload["contents"].append({"role": "user", "parts": user_parts})
             data = json.dumps(payload).encode("utf-8")
 
             for model_name in self.gemini_models:
@@ -360,7 +391,9 @@ class LLMRouter:
                     "temperature": temperature,
                     "num_predict": max_tokens,
                     "num_ctx": 2048,
-                    "num_thread": max(1, os.cpu_count() or 4)
+                    "num_thread": max(1, os.cpu_count() or 4),
+                    "repeat_penalty": 1.1,
+                    "top_p": 0.9
                 }
             }
             req = urllib.request.Request(
@@ -436,6 +469,9 @@ class LLMRouter:
                     "model": model_name,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
+                    "frequency_penalty": 0.2,
+                    "presence_penalty": 0.2,
+                    "top_p": 0.9,
                     "messages": self._build_messages(system_prompt, user_prompt, chat_history)
                 }
                 req = urllib.request.Request(
@@ -476,6 +512,9 @@ class LLMRouter:
                     "model": model_name,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
+                    "frequency_penalty": 0.2,
+                    "presence_penalty": 0.2,
+                    "top_p": 0.9,
                     "messages": self._build_messages(system_prompt, user_prompt, chat_history),
                     "stream": True
                 }
@@ -529,7 +568,9 @@ class LLMRouter:
                 "temperature": temperature,
                 "num_predict": max_tokens,
                 "num_ctx": 2048,
-                "num_thread": max(1, os.cpu_count() or 4)
+                "num_thread": max(1, os.cpu_count() or 4),
+                "repeat_penalty": 1.1,
+                "top_p": 0.9
             }
         }
         req = urllib.request.Request(
@@ -585,7 +626,26 @@ class LLMRouter:
         if res:
             yield res[0]
 
-    def generate(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 3000, temperature: float = 0.2) -> Optional[Tuple[str, str]]:
+    def extract_text_from_image(self, image_data_base64: str, mime_type: str = "image/jpeg") -> Optional[str]:
+        """Dùng Vision Model để trích xuất chữ từ ảnh."""
+        system_prompt = "Bạn là một trợ lý AI thông minh có nhiệm vụ đọc hiểu hình ảnh. Hãy trích xuất toàn bộ văn bản (chữ) có trong hình ảnh này. Trình bày lại y nguyên nội dung, tuyệt đối không thêm thắt bình luận, mô tả hình ảnh hay bất kỳ từ ngữ nào khác ngoài văn bản có trong ảnh."
+        user_prompt = "Hãy trích xuất văn bản từ hình ảnh này."
+        
+        # Thử Gemini trước
+        if self.gemini_keys:
+            res = self._call_gemini(system_prompt, user_prompt, max_tokens=2048, image_data=image_data_base64, mime_type=mime_type)
+            if res:
+                return res[0].strip()
+        
+        # Nếu không có Gemini hoặc lỗi, thử OpenRouter
+        if self.openrouter_keys:
+            res = self._call_openrouter(system_prompt, user_prompt, max_tokens=2048, image_data=image_data_base64, mime_type=mime_type)
+            if res:
+                return res[0].strip()
+                
+        return None
+
+    def generate(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 4096, temperature: float = 0.2) -> Optional[Tuple[str, str]]:
         """
         Execute RAG generation across providers following priority order.
         Returns: (answer_text, provider_info_string) or None if all fail.

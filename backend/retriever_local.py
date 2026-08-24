@@ -538,8 +538,11 @@ class LocalRetriever:
         3. Deduplicate: chỉ giữ 1 parent duy nhất cho mỗi parent_id
         4. Trả về Parent Chunks đầy đủ (trọn Điều luật)
         """
+        # Loại bỏ tiền tố trích xuất ảnh để tìm kiếm vector/BM25 chính xác hơn
+        clean_q = re.sub(r'\[Văn bản trích xuất từ ảnh.*?\]:\s*', '', q).strip()
+        
         # Tìm nhiều child hơn top_k để đảm bảo có đủ parent sau deduplicate
-        child_results = self.retrieve(q, top_k=top_k * 3)
+        child_results = self.retrieve(clean_q, top_k=top_k * 3)
         
         if not child_results:
             return [], []
@@ -621,7 +624,8 @@ class LocalRetriever:
                 [], "local"
             )
 
-        q_vec = self.model.encode([query], normalize_embeddings=True, show_progress_bar=False)[0]
+        clean_q = re.sub(r'\[Văn bản trích xuất từ ảnh.*?\]:\s*', '', query).strip()
+        q_vec = self.model.encode([clean_q], normalize_embeddings=True, show_progress_bar=False)[0]
         scored = []
         for c in scoped_chunks:
             emb = np.array(c['embedding'], dtype=np.float32)
@@ -1058,8 +1062,9 @@ def synthesize_from_retrieved(model, query, retrieved, max_sentences=6):
     # embed query and sentences
     texts = [c['text'] for c in candidates]
     try:
+        clean_q = re.sub(r'\[Văn bản trích xuất từ ảnh.*?\]:\s*', '', query).strip()
         sent_embs = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True).astype('float32')
-        q_emb = model.encode([query], convert_to_numpy=True, normalize_embeddings=True).astype('float32')
+        q_emb = model.encode([clean_q], convert_to_numpy=True, normalize_embeddings=True).astype('float32')
     except Exception:
         parts = []
         sources = []

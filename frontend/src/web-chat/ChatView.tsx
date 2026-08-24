@@ -82,6 +82,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+      const file = e.clipboardData.files[0];
+      if (file.type.startsWith('image/')) {
+        setAttachedFile(file);
+        e.preventDefault();
+      }
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-screen bg-surface relative overflow-hidden w-full">
       {/* Desktop & Mobile Top Bar */}
@@ -371,6 +381,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               value={inputText}
               onChange={handleTextareaInput}
               onKeyDown={handleTextareaKeyDown}
+              onPaste={handlePaste}
               placeholder="Nhập câu hỏi hoặc số tờ khai hải quan..."
               rows={1}
               className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none max-h-36 min-h-[44px] py-2 px-1 text-sm sm:text-base text-slate-900 placeholder-[#757682]"

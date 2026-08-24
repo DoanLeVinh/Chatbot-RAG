@@ -210,7 +210,12 @@ export default function App() {
           } else if (uploadData.scopedRagError) {
             scopedRagError = uploadData.scopedRagError;
           }
-          if (!text.trim()) {
+          if (uploadData.extractedText) {
+            const extracted = uploadData.extractedText;
+            userMessageText = text.trim() 
+              ? `${text.trim()}\n\n[Văn bản trích xuất từ ảnh ${uploadedFile.name}]:\n${extracted}` 
+              : `[Văn bản trích xuất từ ảnh ${uploadedFile.name}]:\n${extracted}`;
+          } else if (!text.trim()) {
             userMessageText = `[Đính kèm: ${uploadedFile.name}]`;
           }
         }
