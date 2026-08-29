@@ -145,19 +145,25 @@ def refine_query(query: str) -> str:
 # ===========================================================================
 # Agent System Prompt — Đặc tả đầy đủ theo openspec
 # ===========================================================================
-AGENT_SYSTEM_PROMPT = """Bạn là Trợ lý AI Cố vấn Chuyên nghiệp về Hải quan và Xuất nhập khẩu tại Việt Nam.
+AGENT_SYSTEM_PROMPT = """Bạn là một trợ lý AI thông minh, chuyên gia đa lĩnh vực (đặc biệt là chuyên gia về Hải quan và Xuất nhập khẩu tại Việt Nam), tận tâm và luôn hướng tới kết quả tốt nhất cho người dùng. Khi xử lý bất kỳ câu hỏi hoặc yêu cầu nào, hãy tuân thủ các nguyên tắc sau:
 
-MỤC TIÊU CỐT LÕI (CÔNG THỨC 70-30):
-- 70% KIẾN THỨC TỪ HỆ THỐNG: Mọi căn cứ pháp lý, quy định, điều luật TUYỆT ĐỐI chỉ được trích xuất từ [Ngữ cảnh] (Context) được cung cấp. Tuyệt đối KHÔNG bịa đặt hay dùng kiến thức ngoài hệ thống để tự trả lời.
-- 30% TRÍ TUỆ CỦA BẠN (UX & NGÔN TỪ): Vận dụng khả năng tư duy tự nhiên để trau chuốt lời văn thật trôi chảy, thân thiện và lịch sự (luôn xưng "mình" và gọi người dùng là "bạn"). Khéo léo phân tích, tính toán, lập luận logic, giải quyết các bài tập tự luận/trắc nghiệm dựa vào kiến thức trong hệ thống một cách thông minh, dễ hiểu.
+1. ĐỊNH HƯỚNG TƯ DUY & XỬ LÝ (QUY TẮC RAG CỐT LÕI):
+- Phân tích kỹ ý định thực sự của người dùng. Mọi căn cứ pháp lý, quy định, điều luật TUYỆT ĐỐI chỉ được trích xuất từ [Ngữ cảnh] (Context) được cung cấp. CẤM SỬ DỤNG KIẾN THỨC BÊN NGOÀI để bịa đặt luật.
+- Nếu [Ngữ cảnh] KHÔNG ĐỦ thông tin, BẮT BUỘC DỪNG LẠI và đáp: "Mình xin lỗi bạn, hiện tại cơ sở dữ liệu pháp luật của mình chưa có thông tin chi tiết về vấn đề này."
+- Luôn ưu tiên độ chính xác, tính thực tế và tính cập nhật của thông tin dựa trên [Ngữ cảnh].
 
-QUY TẮC PHẢN HỒI:
-1. CỰC KỲ CHI TIẾT & ĐẦY ĐỦ Ý: Trả lời phải sâu sát, toàn diện, bám sát các trọng tâm. Liệt kê tối đa các quy định, điều kiện, thủ tục, con số, thời hạn có trong [Ngữ cảnh]. Không trả lời chung chung, hời hợt.
-2. Trình bày thân thiện, tối ưu UX: BẮT BUỘC sử dụng danh sách (bullet points/numbered lists) để chia nhỏ các ý. Dùng in đậm (`**text**`) để nhấn mạnh các từ khóa quan trọng, thuật ngữ chuyên ngành, mã HS, tên Nghị định, số Điều. Cấu trúc câu trả lời phải rõ ràng: Định nghĩa -> Các ý chính/Điều kiện -> Lưu ý (nếu có).
-3. Nếu người dùng hỏi bài tập hoặc trắc nghiệm, hãy step-by-step suy luận từ các điều khoản trong [Ngữ cảnh] để đưa ra đáp án chính xác nhất.
-4. LUÔN trích dẫn rõ nguồn ở cuối câu/đoạn khi trích xuất thông tin bằng cú pháp [1], [2] tương ứng với [Nguồn 1], [Nguồn 2] trong [Ngữ cảnh] (VD: "Theo quy định tại Điều 17... [1]").
-5. CẤM SỬ DỤNG KIẾN THỨC BÊN NGOÀI: Nếu trong [Ngữ cảnh] KHÔNG ĐỦ thông tin để trả lời, BẮT BUỘC phải DỪNG LẠI và chỉ trả lời: "Mình xin lỗi bạn, dựa trên cơ sở dữ liệu pháp luật hiện tại của mình, không có quy định cụ thể nào khớp với vấn đề này. Bạn có thể cung cấp thêm thông tin được không?". TUYỆT ĐỐI KHÔNG giải thích thêm kiểu "Tuy nhiên, theo kiến thức chung..." hay cố gắng tự suy diễn câu trả lời.
-6. Không để lộ các từ khóa hệ thống, thẻ kỹ thuật (như metadata, chunk_id,...).
+2. CẤU TRÚC VÀ ĐỊNH DẠNG ĐẦU RA:
+- Trình bày rõ ràng, mạch lạc, tránh các đoạn văn quá dài gây mỏi mắt.
+- Sử dụng linh hoạt các công cụ định dạng: Tiêu đề (##, ###), danh sách gạch đầu dòng (*), bảng so sánh hoặc chữ đậm (**...**) để làm nổi bật từ khóa (mã HS, tên Nghị định) và ý chính.
+- Với các câu hỏi mang tính hướng dẫn, phân tích hoặc tư vấn chuyên sâu, hãy chia thành các bước/phần rõ ràng (Logic: Tổng quan -> Chi tiết/Các bước -> Lưu ý/Kết luận).
+- BẮT BUỘC TRÍCH NGUỒN (INLINE CITATIONS): Bất cứ khi nào bạn lấy thông tin từ ngữ cảnh, bạn PHẢI gắn thẻ nguồn [1], [2]... tương ứng với [Nguồn 1], [Nguồn 2] ngay tại cuối mỗi câu hoặc mỗi ý (Ví dụ: "Theo Điều 17 [1]..."). Đây là yêu cầu kỹ thuật BẮT BUỘC để hệ thống giao diện UI hoạt động.
+
+3. PHONG CÁCH GIAO TIẾP (TONE OF VOICE):
+- Thân thiện, nhiệt tình, chuyên nghiệp, thấu cảm và lịch sự (xưng "mình" và gọi người dùng là "bạn").
+- ẨN CƠ CHẾ NỘI BỘ: TRONG CÂU TRẢ LỜI, TUYỆT ĐỐI KHÔNG SỬ DỤNG CÁC TỪ KHÓA NHƯ "[Ngữ cảnh]", "Theo tài liệu được cung cấp", hay "Dựa trên thông tin từ ngữ cảnh". Hãy tư vấn một cách tự nhiên như thể đó là kiến thức của bạn.
+- Khách quan, trung thực; nếu có rủi ro hoặc thông tin mang tính thời điểm/pháp lý, hãy đính kèm lời khuyên tham khảo từ chuyên gia hoặc cơ quan chức năng khi cần thiết.
+- Tránh dùng văn phong máy móc, rườm rà; đi thẳng vào trọng tâm ở phần đầu câu trả lời.
+- GIỚI HẠN ĐỘ DÀI: Nhắm tớm 3-5 đoạn văn cho câu trả lời. Chỉ trình bày chi tiết khi người dùng yêu cầu rõ.
 """
 
 
@@ -509,8 +515,8 @@ class LocalRetriever:
 
         # 4. Sort and select candidates to rerank
         candidates.sort(key=lambda x: x['score'], reverse=True)
-        # TỐI ƯU TỐC ĐỘ: Chỉ lấy 5 chunk thay vì 15 để Reranker chạy cực nhanh trên CPU (< 1s)
-        top_candidates = candidates[:5]
+        # TỐI ƯU TỐC ĐỘ: Chỉ lấy 4 chunk để Reranker chạy cực nhanh trên CPU
+        top_candidates = candidates[:4]
         
         # 5. Cross-Encoder Reranking
         if hasattr(self, 'reranker') and self.reranker is not None and top_candidates:
@@ -519,7 +525,9 @@ class LocalRetriever:
                 cross_scores = self.reranker.predict(pairs)
                 for i, c_score in enumerate(cross_scores):
                     top_candidates[i]['cross_score'] = float(c_score)
-                    # We override the main score with the cross-encoder score for final sorting
+                    # Lưu lại RRF score gốc trước khi bị ghi đè bởi cross-encoder
+                    top_candidates[i]['rrf_score'] = top_candidates[i].get('vector_score', 0.01)
+                    # Override main score with cross-encoder score for sorting
                     top_candidates[i]['score'] = float(c_score)
                 # Re-sort based on precise cross-encoder scores
                 top_candidates.sort(key=lambda x: x['score'], reverse=True)
@@ -542,7 +550,7 @@ class LocalRetriever:
         clean_q = re.sub(r'\[Văn bản trích xuất từ ảnh.*?\]:\s*', '', q).strip()
         
         # Tìm nhiều child hơn top_k để đảm bảo có đủ parent sau deduplicate
-        child_results = self.retrieve(clean_q, top_k=top_k * 3)
+        child_results = self.retrieve(clean_q, top_k=top_k * 2)
         
         if not child_results:
             return [], []
@@ -561,14 +569,20 @@ class LocalRetriever:
             # Lookup Parent Chunk từ store
             parent = self.parent_chunks.get(parent_id)
             if parent:
+                # Dùng rrf_score (RRF đã chuẩn hóa) chứ không dùng cross-encoder logit
+                parent_text = parent.get('text_content') or parent.get('text') or ''
+                if not parent_text.strip():
+                    parent_text = child.get('text', '')
+
+                safe_rrf = child.get('rrf_score') or child.get('vector_score', 0.01)
                 deduplicated_parents.append({
                     'parent_id': parent_id,
-                    'text': parent.get('text', ''),
+                    'text': parent_text,
                     'source': parent.get('source'),
                     'start_index': parent.get('start_index'),
                     'article_ids': parent.get('article_ids', []),
                     'chapter': parent.get('chapter'),
-                    'best_child_score': child.get('score', 0),
+                    'best_child_score': safe_rrf,
                 })
                 matched_children.append(child)
             
@@ -581,9 +595,31 @@ class LocalRetriever:
         
         return deduplicated_parents, matched_children
 
-    def _answer_from_parents(self, query: str, parents: list, children: list, chat_history: list = None, max_sentences: int = 6):
+    def _answer_from_retrieved(self, query: str, retrieved: list, chat_history: list = None, max_sentences: int = 6, ai_model: str = 'logi_fast'):
+        """Fallback: sinh từ Child Chunks trực tiếp."""
+        # Chuyển đổi format retrieved -> parents (dù chỉ là child chunk)
+        parents_format = []
+        for r in retrieved:
+            parents_format.append({
+                'source': r.get('source'),
+                'start_index': r.get('start_index'),
+                'chapter': r.get('chapter'),
+                'text': r.get('text', ''),
+                'article_ids': r.get('article_ids', [])
+            })
+        
+        llm_result = _refine_with_llm_router(query, parents_format, chat_history, ai_model=ai_model)
+        if llm_result and llm_result.get('answer'):
+            enriched_sources = _build_enriched_sources_from_parents(parents_format)
+            provider = llm_result.get('provider', 'llm')
+            return llm_result['answer'], llm_result.get('sources', enriched_sources), provider
+
+        answer, sources = format_snippet_only_answer(retrieved)
+        return answer, sources, "local"
+
+    def _answer_from_parents(self, query: str, parents: list, children: list, chat_history: list = None, max_sentences: int = 6, ai_model: str = 'logi_fast'):
         """Sinh câu trả lời (LLMRouter: OpenRouter/Gemini/Ollama hoặc fallback local) từ danh sách parents/children đã có sẵn."""
-        llm_result = _refine_with_llm_router(query, parents, chat_history)
+        llm_result = _refine_with_llm_router(query, parents, chat_history, ai_model=ai_model)
         if llm_result and llm_result.get('answer'):
             enriched_sources = _build_enriched_sources_from_parents(parents)
             provider = llm_result.get('provider', 'llm')
@@ -652,39 +688,29 @@ class LocalRetriever:
 
         return self._answer_from_parents(query, parents, [], chat_history=None, max_sentences=max_sentences)
 
-    def synthesize(self, query: str, chat_history: list = None, top_k: int = 5, max_sentences: int = 6):
+    def synthesize(self, query: str, chat_history: list = None, top_k: int = 5, max_sentences: int = 6, ai_model: str = 'logi_fast'):
         """Retrieve Parent Documents and synthesize answer with citations."""
         # Sử dụng PDR: search child → trả parent
         parents, children = self.retrieve_parents(query, top_k=top_k)
 
         # --- Grounded Answer Boundary Check ---
-        # Giảm NO_ANSWER_THRESHOLD từ 0.50 xuống 0.35 để cải thiện Recall
-        # (câu hỏi tổng quát thường có score thấp hơn nhưng vẫn có thể trả lời được)
-        NO_ANSWER_THRESHOLD = 0.35
+        # Chỉ từ chối khi retrieval trả về hoàn toàn rỗng.
+        # Không dùng score để lọc vì cross-encoder trả logit thô (có thể âm),
+        # không thể so sánh được với ngưỡng 0-1 tuyệt đối.
         if not parents and not children:
             return (
-                "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này. Vui lòng thử đặt câu hỏi cụ thể hơn hoặc cung cấp mã HS/tên hàng hóa.",
-                [],
-                "local"
-            )
-        
-        # Kiểm tra score từ children (vì parents không có vector score trực tiếp)
-        best_score = 0
-        if children:
-            best_score = max(c.get('score', 0) for c in children)
-        elif parents:
-            best_score = max(p.get('best_child_score', 0) for p in parents)
-            
-        if best_score < NO_ANSWER_THRESHOLD:
-            return (
-                "Tôi không tìm thấy thông tin đủ chính xác trong cơ sở dữ liệu pháp luật hiện tại để giải đáp câu hỏi này. Vui lòng thử hỏi cụ thể hơn, ví dụ: mã HS, tên hàng hóa, hoặc điều khoản cụ thể bạn muốn tra cứu.",
-                [],
-                "local"
+                "Tôi không tìm thấy thông tin phù hợp trong các văn bản pháp luật. "
+                "Vui lòng thử đặt câu hỏi cụ thể hơn hoặc cung cấp mã HS/tên hàng hóa.",
+                [], "local"
             )
 
-        return self._answer_from_parents(query, parents, children, chat_history=chat_history, max_sentences=max_sentences)
+        # Nếu không có PDR (không tìm thấy parent chunk nào)
+        if not parents and children:
+            return self._answer_from_retrieved(query, children, chat_history=chat_history, max_sentences=max_sentences, ai_model=ai_model)
 
-    def synthesize_stream(self, query: str, chat_history: list = None, top_k: int = 5):
+        return self._answer_from_parents(query, parents, children, chat_history=chat_history, max_sentences=max_sentences, ai_model=ai_model)
+
+    def synthesize_stream(self, query: str, chat_history: list = None, top_k: int = 5, ai_model: str = 'logi_fast'):
         """Retrieve and synthesize answer with streaming."""
         parents, children = self.retrieve_parents(query, top_k=top_k)
 
@@ -692,24 +718,13 @@ class LocalRetriever:
         if not parents and not children:
             yield {
                 "type": "text",
-                "content": "Tôi không tìm thấy thông tin phù hợp trong các văn bản quy phạm pháp luật được cung cấp để giải đáp câu hỏi này.",
+                "content": "Tôi không tìm thấy thông tin phù hợp trong các văn bản pháp luật được cung cấp.",
                 "sources": []
             }
             return
         
-        best_score = 0
-        if children:
-            best_score = max(c.get('score', 0) for c in children)
-        elif parents:
-            best_score = max(p.get('best_child_score', 0) for p in parents)
-            
-        if best_score < NO_ANSWER_THRESHOLD:
-            yield {
-                "type": "text",
-                "content": "Tôi không tìm thấy thông tin đủ chính xác trong cơ sở dữ liệu pháp luật hiện tại để giải đáp câu hỏi này.",
-                "sources": []
-            }
-            return
+        # Nếu đã có kết quả retrieval, luôn tiến hành sinh câu trả lời
+        # (Không check score vì cross-encoder logit không so ngưỡng 0-1 được)
 
         yield from _refine_with_llm_router_stream(query, parents, chat_history)
 
@@ -820,7 +835,7 @@ def _format_parent_context(parents, max_items=6):
         chapter = parent.get("chapter")
         chapter_text = f" | {chapter}" if chapter else ""
         # Lấy toàn bộ parent text (trọn Điều luật) — đây là lợi thế của PDR
-        lines.append(f"[Nguồn {i}] {src} | vị trí {start}{chapter_text}{article_text}\n{text[:2500]}")
+        lines.append(f"[Nguồn {i}] {src} | vị trí {start}{chapter_text}{article_text}\n{text[:1500]}")
     return "\n\n".join(lines)
 
 
@@ -910,19 +925,19 @@ def _call_gemini_api(system_prompt, user_prompt):
     return None
 
 
-def _refine_with_llm_router(query, parents, chat_history=None):
+def _refine_with_llm_router(query, parents, chat_history=None, ai_model='logi_fast'):
     """Sử dụng LLMRouter (OpenRouter / Gemini / Ollama / OpenAI) với Agent System Prompt + Parent Document context."""
     from llm_router import get_llm_router
     router = get_llm_router()
 
-    # Format context từ Parent Chunks (đầy đủ, trọn Điều luật). Tăng max_items để LLM có đủ chi tiết.
-    context_text = _format_parent_context(parents, max_items=5)
+    # Format context từ Parent Chunks. Giới hạn 3 items để tối ưu tốc độ.
+    context_text = _format_parent_context(parents, max_items=3)
 
     user_prompt = f"""[Ngữ cảnh]: {context_text}
 [Câu hỏi]: {query}"""
 
     try:
-        res = router.generate(AGENT_SYSTEM_PROMPT, user_prompt, chat_history=chat_history, max_tokens=3500, temperature=0.2)
+        res = router.generate(AGENT_SYSTEM_PROMPT, user_prompt, chat_history=chat_history, max_tokens=2000, temperature=0.2, ai_model=ai_model)
         if res:
             content, provider = res
             # Remove markdown backticks if accidentally wraps in code block
@@ -951,17 +966,17 @@ def _refine_with_llm_router(query, parents, chat_history=None):
     
     return None
 
-def _refine_with_llm_router_stream(query, parents, chat_history=None):
+def _refine_with_llm_router_stream(query, parents, chat_history=None, ai_model='logi_fast'):
     """Sử dụng LLMRouter với generator để stream nội dung (SSE)."""
     from llm_router import get_llm_router
     router = get_llm_router()
 
-    context_text = _format_parent_context(parents, max_items=5)
+    context_text = _format_parent_context(parents, max_items=3)
     user_prompt = f"[Ngữ cảnh]: {context_text}\n[Câu hỏi]: {query}"
 
     try:
         enriched_sources = _build_enriched_sources_from_parents(parents)
-        for chunk in router.generate_stream(AGENT_SYSTEM_PROMPT, user_prompt, chat_history, max_tokens=3000, temperature=0.2):
+        for chunk in router.generate_stream(AGENT_SYSTEM_PROMPT, user_prompt, chat_history, max_tokens=2000, temperature=0.2, ai_model=ai_model):
             if chunk:
                 yield {
                     "type": "text",
@@ -1027,8 +1042,9 @@ def format_full_parents_answer(parents, query, max_items=4, max_chars_per_item=2
         })
 
     answer = (
-        f"Dựa trên câu hỏi \"{query}\", dưới đây là toàn bộ nội dung các Điều/Khoản liên quan "
-        f"nhất tìm thấy trong dữ liệu pháp luật hiện có:\n\n" + "\n\n".join(parts)
+        f"Chào bạn, hệ thống AI tự động tạo văn bản hiện đang bị quá tải hoặc lỗi kết nối. "
+        f"Tuy nhiên, mình đã tìm thấy các quy định pháp luật liên quan trực tiếp đến vấn đề của bạn như sau:\n\n"
+        + "\n\n".join(parts)
     )
     return answer, sources
 

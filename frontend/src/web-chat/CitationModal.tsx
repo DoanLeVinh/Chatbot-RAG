@@ -20,6 +20,7 @@ export const CitationModal: React.FC<CitationModalProps> = ({
     ? citation.title.split('-')[1].split(',').map((t) => t.trim())
     : [];
   const [activeTab, setActiveTab] = useState(jumpTabs[0] || '');
+  const [mainTab, setMainTab] = useState<'context' | 'pdf'>('context');
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
@@ -52,70 +53,104 @@ export const CitationModal: React.FC<CitationModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white rounded-2xl w-full max-w-[70vw] h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/60">
-          <div>
+        <div className="p-5 border-b border-slate-100 flex justify-between items-start bg-slate-50/60 shrink-0">
+          <div className="flex-1">
             <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-md">
               {citation.code}
             </span>
             <h3 className="text-base font-bold text-slate-900 mt-1.5">{citation.title}</h3>
+            
+            {citation.pdfUrl && citation.pdfUrl !== '#' && (
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => setMainTab('context')}
+                  className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-colors ${mainTab === 'context' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
+                >
+                  Nội dung trích đoạn (RAG)
+                </button>
+                <button
+                  onClick={() => setMainTab('pdf')}
+                  className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1 ${mainTab === 'pdf' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Trình đọc PDF gốc
+                </button>
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-full hover:bg-slate-100"
+            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-full hover:bg-slate-100 shrink-0 ml-4"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-4 text-sm text-slate-800 leading-relaxed">
-          {/* SHA-256 Badge */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 w-fit">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span className="text-[11px] font-bold">✓ Đã kiểm chứng SHA-256</span>
+        <div className="flex-1 overflow-hidden bg-white relative">
+          {mainTab === 'context' ? (
+            <div className="p-6 h-full overflow-y-auto space-y-4 text-sm text-slate-800 leading-relaxed">
+              {/* SHA-256 Badge */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 w-fit">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span className="text-[11px] font-bold">✓ Đã kiểm chứng SHA-256</span>
+                </div>
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                  {citation.statusLabel || 'Đang có hiệu lực'}
+                </span>
+              </div>
+
+              {/* Full Text with Jump Tabs */}
+              <div className="flex flex-col h-full mt-4">
+                <div className="flex justify-between items-end mb-2">
+                  <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500">
+                    Nội dung điều khoản
+                  </h4>
+                  {jumpTabs.length > 0 && (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {jumpTabs.map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => setActiveTab(tab)}
+                          className={`px-2 py-1 text-[10px] font-bold rounded-md transition-colors ${
+                            activeTab === tab
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                          }`}
+                        >
+                          {tab}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div ref={scrollRef} className="p-4 bg-slate-50 rounded-xl border border-slate-200 font-mono text-[13px] text-slate-800 leading-relaxed whitespace-pre-wrap flex-1 overflow-y-auto">
+                  {highlightText(citation.fullText || citation.summary || 'Không có dữ liệu toàn văn', activeTab)}
+                </div>
+              </div>
             </div>
-            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-              {citation.statusLabel || 'Đang có hiệu lực'}
-            </span>
-          </div>
-
-          {/* Summary section removed because it naively extracts first 3 sentences which might not match AI's actual reference */}
-
-          {/* Full Text with Jump Tabs */}
-          <div className="flex flex-col h-full">
-            <div className="flex justify-between items-end mb-2">
-              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-500">
-                Toàn văn / Điều khoản chi tiết
-              </h4>
-              {jumpTabs.length > 0 && (
-                <div className="flex gap-1.5">
-                  {jumpTabs.map((tab) => (
-                    <button
-                      key={tab}
-                      onClick={() => setActiveTab(tab)}
-                      className={`px-2 py-1 text-[10px] font-bold rounded-md transition-colors ${
-                        activeTab === tab
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                      }`}
-                    >
-                      {tab}
-                    </button>
-                  ))}
+          ) : (
+            <div className="w-full h-full bg-slate-100">
+              {citation.pdfUrl && citation.pdfUrl !== '#' ? (
+                <iframe
+                  src={`${citation.pdfUrl}${citation.pageNumber ? `#page=${citation.pageNumber}` : ''}`}
+                  className="w-full h-full border-0"
+                  title="PDF Viewer"
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                  Không có bản PDF cho tài liệu này.
                 </div>
               )}
             </div>
-            <div ref={scrollRef} className="p-4 bg-slate-50 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
-              {highlightText(citation.fullText || citation.summary || 'Không có dữ liệu toàn văn', activeTab)}
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-100 bg-slate-50/60 flex justify-between items-center">
+        <div className="p-4 border-t border-slate-100 bg-slate-50/60 flex justify-between items-center shrink-0">
           <div className="flex gap-2">
             <button
               onClick={() =>

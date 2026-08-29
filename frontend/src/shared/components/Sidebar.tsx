@@ -24,6 +24,8 @@ interface SidebarProps {
   onLogout?: () => void;
   width?: number;
   onCloseDesktop?: () => void;
+  userUsage?: import('../types').UserUsage | null;
+  onUpgradeClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -41,6 +43,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   width = 280,
   onCloseDesktop,
+  userUsage,
+  onUpgradeClick,
 }) => {
   // Group sessions
   const todaySessions = sessions.filter(
@@ -257,8 +261,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       </div>
 
+      {/* Usage Progress */}
+      {userUsage && (
+        <div className="px-4 py-3 mx-2 mb-2 bg-slate-50 border border-slate-200 rounded-xl mt-auto">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs font-semibold text-slate-600">Gói hiện tại:</span>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${userUsage.plan === 'pro' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+              {userUsage.plan === 'pro' ? 'Logi Pro' : 'Miễn phí'}
+            </span>
+          </div>
+          
+          {userUsage.plan === 'free' && (
+            <div className="space-y-3 mt-3">
+              <div>
+                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                  <span>Tin nhắn</span>
+                  <span>{userUsage.usage.messages}/{userUsage.limits.messages}</span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className="bg-blue-500 h-1.5 rounded-full transition-all" 
+                    style={{ width: `${Math.min(100, (userUsage.usage.messages / userUsage.limits.messages) * 100)}%` }}
+                  ></div>
+                </div>
+              </div>
+              
+              <div>
+                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                  <span>Tải ảnh</span>
+                  <span>{userUsage.usage.images}/{userUsage.limits.images}</span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className="bg-purple-500 h-1.5 rounded-full transition-all" 
+                    style={{ width: `${Math.min(100, (userUsage.usage.images / userUsage.limits.images) * 100)}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <button 
+                onClick={onUpgradeClick}
+                className="w-full mt-3 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-xs font-semibold rounded-lg shadow-sm hover:shadow-md transition-all"
+              >
+                Nâng cấp Pro
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Bottom */}
-      <div className="mt-auto pt-3 border-t border-slate-200">
+      <div className="pt-3 border-t border-slate-200">
         {currentUser ? (
           <div className="flex items-center justify-between px-1 py-1">
             <div className="flex items-center gap-2 overflow-hidden px-2">

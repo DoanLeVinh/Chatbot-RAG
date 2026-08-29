@@ -62,6 +62,10 @@ def init_db():
         user_cols = [col["name"] for col in cursor.fetchall()]
         if "role" not in user_cols:
             cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user';")
+        if "subscription_plan" not in user_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN subscription_plan TEXT DEFAULT 'free';")
+        if "subscription_expiry" not in user_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN subscription_expiry DATETIME;")
 
 
 
@@ -337,6 +341,8 @@ def register_user(email: str, password: str, full_name: str, role: str = "user")
             "email": email_clean,
             "fullName": full_name.strip(),
             "role": role,
+            "subscriptionPlan": "free",
+            "subscriptionExpiry": None,
             "token": token
         }
 
@@ -345,7 +351,7 @@ def login_user(email: str, password: str) -> Dict[str, Any]:
     email_clean = email.strip().lower()
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, email, password_hash, salt, full_name, role FROM users WHERE email = ?;", (email_clean,))
+        cursor.execute("SELECT id, email, password_hash, salt, full_name, role, subscription_plan, subscription_expiry FROM users WHERE email = ?;", (email_clean,))
         user_row = cursor.fetchone()
 
         if not user_row:
@@ -369,6 +375,8 @@ def login_user(email: str, password: str) -> Dict[str, Any]:
             "email": user_row["email"],
             "fullName": user_row["full_name"],
             "role": user_row["role"] or "user",
+            "subscriptionPlan": user_row["subscription_plan"] or "free",
+            "subscriptionExpiry": user_row["subscription_expiry"],
             "token": token
         }
 
@@ -376,13 +384,53 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     """Retrieve user record by user ID."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, email, full_name, role, created_at FROM users WHERE id = ?;", (user_id,))
+        cursor.execute("SELECT id, email, full_name, role, subscription_plan, subscription_expiry, created_at FROM users WHERE id = ?;", (user_id,))
         row = cursor.fetchone()
         if row:
             res = dict(row)
             res["fullName"] = res.get("full_name")
+            res["subscriptionPlan"] = res.get("subscription_plan") or "free"
+            res["subscriptionExpiry"] = res.get("subscription_expiry")
             return res
         return None
+
+def get_daily_message_count(user_id: str, date_str: str = None) -> int:
+    """Đếm số tin nhắn user đã gửi trong một ngày (mặc định hôm nay)."""
+    if not date_str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT COUNT(*) FROM messages m
+            JOIN sessions s ON m.session_id = s.id
+            WHERE s.user_id = ? AND m.sender = 'user' AND DATE(m.created_at) = ?
+        ''', (user_id, date_str))
+        row = cursor.fetchone()
+        return row[0] if row else 0
+
+def get_daily_image_upload_count(user_id: str, date_str: str = None) -> int:
+    """Đếm số ảnh user đã tải lên trong một ngày (mặc định hôm nay)."""
+    if not date_str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT COUNT(*) FROM attachments
+            WHERE user_id = ? AND file_type = 'image' AND DATE(uploaded_at) = ?
+        ''', (user_id, date_str))
+        row = cursor.fetchone()
+        return row[0] if row else 0
+
+def upgrade_user_plan(user_id: str, plan: str, expiry_days: int = 30) -> bool:
+    """Cập nhật gói đăng ký của user."""
+    expiry_date = (datetime.now() + timedelta(days=expiry_days)).strftime("%Y-%m-%d %H:%M:%S") if plan == "pro" else None
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE users SET subscription_plan = ?, subscription_expiry = ? WHERE id = ?
+        ''', (plan, expiry_date, user_id))
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 # ─── Sessions & Chat History (Strict User Isolation) ──────────────
@@ -785,7 +833,7 @@ def update_user_settings(user_id: str, auto_cite: bool, law_database: str, font_
 def get_all_users() -> List[Dict[str, Any]]:
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, email, full_name, role, created_at FROM users ORDER BY created_at DESC;")
+        cursor.execute("SELECT id, email, full_name, role, subscription_plan, subscription_expiry, created_at FROM users ORDER BY created_at DESC;")
         rows = cursor.fetchall()
         return [dict(r) for r in rows]
 
@@ -796,7 +844,7 @@ def delete_user(user_id: str) -> bool:
         conn.commit()
         return cursor.rowcount > 0
 
-def update_user(user_id: str, email: str, full_name: str, password: Optional[str] = None, role: Optional[str] = None) -> bool:
+def update_user(user_id: str, email: str, full_name: str, password: Optional[str] = None, role: Optional[str] = None, subscription_plan: Optional[str] = None) -> bool:
     with get_connection() as conn:
         cursor = conn.cursor()
         updates = ["email = ?", "full_name = ?"]
@@ -805,6 +853,10 @@ def update_user(user_id: str, email: str, full_name: str, password: Optional[str
         if role:
             updates.append("role = ?")
             params.append(role)
+
+        if subscription_plan:
+            updates.append("subscription_plan = ?")
+            params.append(subscription_plan)
 
         if password:
             pwd_hash, salt_hex = _hash_password(password)

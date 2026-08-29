@@ -2,7 +2,46 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { ChatSession, ChatMessage } from '../shared/types';
 import { RippleButton } from '../shared/components/RippleButton';
-import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor } from '@phosphor-icons/react';
+import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor, FileText, ThumbsUp, ThumbsDown, Copy, SpeakerHigh, Check } from '@phosphor-icons/react';
+import { Zap, BrainCircuit } from 'lucide-react';
+
+const getOrderedCitations = (msg: ChatMessage) => {
+  if (!msg.citations || msg.citations.length === 0) return { processedText: msg.text, orderedCitations: [] };
+  
+  const citationRegex = /\[\s*(?:Nguồn\s*)?(\d+)\s*\]/gi;
+  const matches = [...msg.text.matchAll(citationRegex)];
+  
+  const uniqueIds = Array.from(new Set(matches.map(m => parseInt(m[1], 10))));
+  const mapping: Record<number, number> = {};
+  
+  uniqueIds.forEach((originalId, index) => {
+    mapping[originalId] = index + 1;
+  });
+  
+  const processedText = msg.text.replace(citationRegex, (match, idStr) => {
+    const originalId = parseInt(idStr, 10);
+    const visualId = mapping[originalId] || originalId;
+    return `[${visualId}](#citation-${originalId})`;
+  });
+  
+  const orderedCitations: any[] = [];
+  uniqueIds.forEach(originalId => {
+    const ref = msg.citations!.find(c => c.id.startsWith(`cit-${originalId - 1}-`));
+    if (ref) {
+      orderedCitations.push({ ...ref, _visualId: mapping[originalId] });
+    }
+  });
+  
+  let nextVisualId = Object.keys(mapping).length + 1;
+  msg.citations.forEach((ref, index) => {
+    const originalId = index + 1;
+    if (!uniqueIds.includes(originalId)) {
+      orderedCitations.push({ ...ref, _visualId: nextVisualId++ });
+    }
+  });
+  
+  return { processedText, orderedCitations };
+};
 
 interface ChatViewProps {
   session: ChatSession;
@@ -13,6 +52,10 @@ interface ChatViewProps {
   onOpenPdfModal: (message: ChatMessage) => void;
   onCitationClick: (citationCode: string) => void;
   isGenerating?: boolean;
+  aiModel?: 'logi_fast' | 'logi_think';
+  setAiModel?: (model: 'logi_fast' | 'logi_think') => void;
+  userPlan?: 'free' | 'pro';
+  onUpgradeClick?: () => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -24,6 +67,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onOpenPdfModal,
   onCitationClick,
   isGenerating = false,
+  aiModel = 'logi_fast',
+  setAiModel,
+  userPlan = 'free',
+  onUpgradeClick,
 }) => {
   const [inputText, setInputText] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
@@ -32,12 +79,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
 
-  // Handle manual scroll to detect if user wants to stop auto-scrolling
+  const handleCopyText = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMsgId(id);
+    setTimeout(() => setCopiedMsgId(null), 2000);
+  };
+
+  const handleSpeakText = (id: string, text: string) => {
+    if ('speechSynthesis' in window) {
+      if (speakingMsgId === id) {
+        window.speechSynthesis.cancel();
+        setSpeakingMsgId(null);
+      } else {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'vi-VN';
+        utterance.onend = () => setSpeakingMsgId(null);
+        window.speechSynthesis.speak(utterance);
+        setSpeakingMsgId(id);
+      }
+    }
+  };
+
   const handleScroll = () => {
     if (scrollContainerRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-      // If user scrolls up more than 100px from the bottom, disable auto-scroll
       const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
       setIsAutoScroll(isNearBottom);
     }
@@ -45,12 +114,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   useEffect(() => {
     if (isAutoScroll) {
-      // Use 'auto' instead of 'smooth' during generation to prevent jitter
       chatEndRef.current?.scrollIntoView({ behavior: isGenerating ? 'auto' : 'smooth' });
     }
   }, [session.messages, isGenerating]);
 
-  // Force auto-scroll on new message submission
   const handleInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !attachedFile) return;
@@ -83,18 +150,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
-      const file = e.clipboardData.files[0];
-      if (file.type.startsWith('image/')) {
-        setAttachedFile(file);
-        e.preventDefault();
+    if (e.clipboardData && e.clipboardData.items) {
+      const items = e.clipboardData.items;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            setAttachedFile(file);
+            e.preventDefault();
+            return;
+          }
+        }
       }
     }
   };
 
   return (
     <div className="flex-1 flex flex-col h-screen bg-surface relative overflow-hidden w-full">
-      {/* Desktop & Mobile Top Bar */}
       <header className="flex justify-between items-center h-16 px-4 md:px-6 w-full sticky top-0 z-20 liquid-glass border-b border-blue-200/50 shrink-0">
         <div className="flex items-center gap-2 overflow-hidden">
           <button
@@ -110,6 +182,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {setAiModel && (
+            <div className="relative group flex items-center bg-slate-100 dark:bg-slate-800 rounded-full p-1 mr-2 border border-slate-200 dark:border-slate-700">
+              <button
+                onClick={() => setAiModel('logi_fast')}
+                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full transition-all ${
+                  aiModel === 'logi_fast'
+                    ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <Zap size={14} weight="fill" />
+                <span className="hidden sm:inline">Logi Fast</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (userPlan === 'free' && onUpgradeClick) {
+                    onUpgradeClick();
+                  } else {
+                    setAiModel('logi_think');
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full transition-all ${
+                  aiModel === 'logi_think'
+                    ? 'bg-white dark:bg-slate-700 shadow-sm text-purple-600'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <BrainCircuit size={14} weight="fill" />
+                <span className="hidden sm:inline">Logi Think</span>
+                {userPlan === 'free' && <ShieldCheck size={12} weight="fill" className="text-amber-500 ml-0.5" />}
+              </button>
+            </div>
+          )}
+
           <button
             onClick={onToggleReferences}
             className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border transition-all cursor-pointer ${
@@ -124,7 +230,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       </header>
 
-      {/* Scrollable Chat Area */}
       <div 
         className="flex-1 overflow-y-auto relative z-10 w-full" 
         id="chat-container"
@@ -134,7 +239,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div className="max-w-5xl mx-auto px-4 pt-6 pb-6 w-full min-h-full">
           <div className="space-y-6">
           
-          {/* System Data Context Banner */}
           <div className="flex justify-center mb-1">
             <span className="bg-[blue-50] text-slate-600 text-xs font-semibold px-3.5 py-1 rounded-full border border-blue-200/50 flex items-center gap-1.5 shadow-2xs">
               <ShieldCheck size={16} weight="fill" className="text-emerald-600" />
@@ -142,166 +246,276 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </span>
           </div>
 
-          {/* Messages */}
           {session.messages.map((msg: ChatMessage) => {
             const isUser = msg.sender === 'user';
 
             if (isUser) {
+              // Clean display text: hide the long "[Văn bản trích xuất từ ảnh...]" block from UI
+              const displayText = msg.text.replace(/\[Văn bản trích xuất từ ảnh[^\]]*\]:\n[\s\S]*$/, '').trim()
+                || msg.text.replace(/\[Đính kèm:.*?\]/, '').trim()
+                || msg.text;
               return (
                 <div key={msg.id} className="flex gap-3 max-w-[85%] ml-auto flex-row-reverse">
                   <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 shadow-sm border border-white">
                     <User size={16} weight="bold" />
                   </div>
-                  <div className="bg-primary text-white rounded-[1.5rem] rounded-tr-sm px-5 py-3.5 shadow-sm text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
-                    {msg.text}
+                  <div className={`${userPlan === 'pro' ? 'bg-gradient-to-br from-blue-600 to-indigo-600 shadow-md shadow-blue-500/20' : 'bg-primary shadow-sm'} text-white rounded-[1.5rem] rounded-tr-sm px-5 py-3.5 text-sm sm:text-base leading-relaxed whitespace-pre-wrap transition-all duration-300`}>
+                    {msg.imageUrl && (
+                      <img 
+                        src={msg.imageUrl} 
+                        alt="Ảnh đính kèm" 
+                        className="max-w-[240px] max-h-[180px] rounded-xl mb-2 border border-white/30 shadow-sm object-cover"
+                      />
+                    )}
+                    {displayText || 'Đã gửi hình ảnh'}
                   </div>
                 </div>
               );
             }
 
-            // AI Response Message
             return (
               <div key={msg.id} className="flex gap-3 max-w-[95%] sm:max-w-[88%]">
                 <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shrink-0 mt-0.5 shadow-sm border border-blue-200">
                   <Anchor size={16} weight="fill" />
                 </div>
 
-                <div className="bg-white border border-slate-200/60 rounded-[1.5rem] rounded-tl-sm p-4 md:p-5 text-slate-900 shadow-sm text-sm sm:text-base leading-snug space-y-1.5">
-                  {/* Text Main */}
+                <div className={`${userPlan === 'pro' ? 'bg-white/80 backdrop-blur-xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-900/5' : 'bg-white border border-slate-200/60 shadow-sm'} rounded-[1.5rem] rounded-tl-sm p-4 md:p-5 text-slate-900 text-sm sm:text-base leading-snug space-y-1.5 transition-all duration-300`}>
                   <div className="text-sm sm:text-base leading-snug text-slate-800 whitespace-pre-wrap min-h-[1.5rem] [&_li>p]:mb-0 [&_li>p]:inline-block [&_li]:mt-0.5">
                     {isGenerating && msg.text === '' ? (
-                      <div className="flex gap-2 items-center h-full pt-1">
-                        <div className="w-2.5 h-2.5 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_2px_6px_rgba(59,130,246,0.4)]" />
-                        <div
-                          className="w-2.5 h-2.5 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_2px_6px_rgba(59,130,246,0.4)]"
-                          style={{ animationDelay: '0.2s' }}
-                        />
-                        <div
-                          className="w-2.5 h-2.5 rounded-full rounded-tl-none rotate-45 bg-blue-500 animate-bounce shadow-[0_2px_6px_rgba(59,130,246,0.4)]"
-                          style={{ animationDelay: '0.4s' }}
-                        />
-                      </div>
-                    ) : isGenerating && /^[🔍⚖️✍️]/.test(msg.text) && !msg.text.includes('\n') ? (
-                      /* Pipeline stage indicator — hiệu ứng mượt hơn */
-                      <div className="flex items-center gap-3 py-1 animate-fadeIn">
-                        <div className="flex items-center gap-1">
-                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                          <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" style={{ animationDelay: '0.15s' }} />
-                          <div className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse" style={{ animationDelay: '0.3s' }} />
-                        </div>
-                        <span className="text-blue-600 font-semibold text-sm tracking-wide">{msg.text}</span>
+                      <div className="py-2 space-y-2">
+                        {[
+                          { id: 'search',   icon: '🔍', label: 'Tìm kiếm văn bản pháp luật' },
+                          { id: 'analyze',  icon: '⚖️', label: 'Phân tích độ phù hợp' },
+                          { id: 'generate', icon: '✍️', label: 'Tổng hợp câu trả lời' },
+                        ].map((step, idx) => {
+                          const stages = [
+                            '🔍 Đang tìm kiếm văn bản pháp luật liên quan...',
+                            '⚖️ Đang phân tích và đánh giá mức độ phù hợp...',
+                            '✍️ Đang tổng hợp câu trả lời...',
+                          ];
+                          const currentIdx = stages.findIndex(s => s === msg.currentStage);
+                          const isActive  = currentIdx === idx;
+                          const isDone    = currentIdx > idx;
+                          return (
+                            <div key={step.id} className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-500 ${
+                              isActive  ? 'bg-blue-50 border border-blue-200 shadow-sm' :
+                              isDone    ? 'bg-green-50 border border-green-100 opacity-70' :
+                              'opacity-35'
+                            }`}>
+                              {isActive ? (
+                                <div className="flex items-center gap-0.5 shrink-0">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-[bounce_0.8s_ease-in-out_infinite]" />
+                                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-[bounce_0.8s_ease-in-out_0.15s_infinite]" />
+                                  <div className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-[bounce_0.8s_ease-in-out_0.3s_infinite]" />
+                                </div>
+                              ) : isDone ? (
+                                <span className="text-green-500 text-sm shrink-0">✓</span>
+                              ) : (
+                                <div className="w-4 h-4 rounded-full border-2 border-slate-200 shrink-0" />
+                              )}
+                              <span className="text-base shrink-0">{step.icon}</span>
+                              <span className={`text-sm font-medium ${
+                                isActive  ? 'text-blue-700' :
+                                isDone    ? 'text-green-700' :
+                                'text-slate-400'
+                              }`}>
+                                {step.label}
+                                {isActive && <span className="ml-1 text-blue-400 animate-pulse">…</span>}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
-                      <ReactMarkdown
-                        components={{
-                          p: ({node, ...props}) => <p className="mb-1.5 last:mb-0" {...props} />,
-                          strong: ({node, ...props}) => <strong className="font-bold text-blue-700" {...props} />,
-                          ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-1.5 space-y-0" {...props} />,
-                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-1.5 space-y-0" {...props} />,
-                          li: ({node, ...props}) => <li className="text-slate-800" {...props} />,
-                          h1: ({node, ...props}) => <h1 className="text-lg font-bold text-slate-900 mb-1 mt-2" {...props} />,
-                          h2: ({node, ...props}) => <h2 className="text-base font-bold text-slate-900 mb-1 mt-2" {...props} />,
-                          h3: ({node, ...props}) => <h3 className="text-sm font-bold text-blue-700 mb-1 mt-1.5" {...props} />,
-                          blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-400 pl-3 italic text-slate-600 bg-blue-50 py-1 pr-2 rounded-r my-1" {...props} />,
-                          code: ({node, className, children, ...props}) => {
-                            const isInline = !className;
-                            return isInline
-                              ? <code className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-xs font-semibold border border-blue-200/50" {...props}>{children}</code>
-                              : <code className={className} {...props}>{children}</code>;
-                          },
-                          em: ({node, ...props}) => <em className="text-slate-500 text-xs" {...props} />,
-                          a: ({node, href, children, ...props}) => {
-                            if (href?.startsWith('#citation-')) {
-                              const idxStr = href.replace('#citation-', '');
-                              const numIdx = parseInt(idxStr, 10) - 1;
-                              const ref = msg.citations?.find(c => c.id.startsWith(`cit-${numIdx}-`));
-                              
-                              if (ref?.pdfUrl && ref.pdfUrl !== '#') {
-                                return (
-                                  <a
-                                    href={ref.pdfUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center justify-center w-5 h-5 ml-1 text-[10px] font-bold text-white bg-blue-500 rounded-full hover:bg-blue-600 shadow-sm align-middle hover:scale-110 transition-transform no-underline"
-                                    title={`Xem bản gốc: ${ref.title}`}
-                                  >
-                                    {idxStr}
-                                  </a>
-                                );
-                              }
+                      (() => {
+                        const { processedText, orderedCitations } = getOrderedCitations(msg);
+                        return (
+                          <>
+                            <ReactMarkdown
+                              components={{
+                                p: ({node, ...props}) => <p className="mb-2.5 last:mb-0" {...props} />,
+                                strong: ({node, ...props}) => <strong className="font-bold text-slate-900" {...props} />,
+                                ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-2.5 space-y-1" {...props} />,
+                                ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-2.5 space-y-1" {...props} />,
+                                li: ({node, ...props}) => <li className="text-slate-800 leading-relaxed" {...props} />,
+                                h1: ({node, ...props}) => <h1 className="text-lg font-bold text-slate-900 mb-2 mt-4" {...props} />,
+                                h2: ({node, ...props}) => <h2 className="text-base font-bold text-slate-900 mb-2 mt-3" {...props} />,
+                                h3: ({node, ...props}) => <h3 className="text-sm font-bold text-slate-900 mb-2 mt-2" {...props} />,
+                                table: ({node, ...props}) => <div className="markdown-table-wrapper"><table className="markdown-table" {...props} /></div>,
+                                thead: ({node, ...props}) => <thead {...props} />,
+                                tbody: ({node, ...props}) => <tbody {...props} />,
+                                tr: ({node, ...props}) => <tr {...props} />,
+                                th: ({node, ...props}) => <th {...props} />,
+                                td: ({node, ...props}) => <td {...props} />,
+                                blockquote: ({node, children, ...props}) => {
+                                  const text = String(children);
+                                  if (text.toLowerCase().includes('lưu ý') || text.toLowerCase().includes('quan trọng')) {
+                                    return <blockquote className="legal-callout" {...props}>{children}</blockquote>;
+                                  }
+                                  return <blockquote className="info-callout" {...props}>{children}</blockquote>;
+                                },
+                                code: ({node, className, children, ...props}) => {
+                                  const isInline = !className;
+                                  return isInline
+                                    ? <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-[13px] font-mono border border-slate-200" {...props}>{children}</code>
+                                    : <pre className="bg-slate-900 text-slate-50 p-3 rounded-xl my-2 overflow-x-auto text-sm font-mono"><code className={className} {...props}>{children}</code></pre>;
+                                },
+                                em: ({node, ...props}) => <em className="italic text-slate-700" {...props} />,
+                                a: ({node, href, children, ...props}) => {
+                                  if (href?.startsWith('#citation-')) {
+                                    const numIdx = parseInt(href.replace('#citation-', ''), 10) - 1;
+                                    const ref = msg.citations?.find(c => c.id.startsWith(`cit-${numIdx}-`));
+                                    
+                                    return (
+                                      <span className="tooltip-group inline-flex items-center">
+                                        <button
+                                          onClick={(e) => { e.preventDefault(); if (ref?.code) onCitationClick(ref.code); }}
+                                          className="inline-flex items-center justify-center min-w-[20px] h-5 ml-1 px-1.5 text-[10px] font-bold text-blue-700 bg-blue-100 rounded-md hover:bg-blue-200 cursor-pointer shadow-xs border border-blue-200 transition-colors"
+                                        >
+                                          {children}
+                                        </button>
+                                        <span className="tooltip-content text-left">
+                                          <strong className="block text-blue-300 mb-1">{ref?.code || 'Nguồn tham khảo'}</strong>
+                                          <span className="font-normal opacity-90 line-clamp-2">{ref?.summary || 'Đang tải nội dung...'}</span>
+                                        </span>
+                                      </span>
+                                    );
+                                  }
+                                  return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700 underline underline-offset-2" {...props}>{children}</a>;
+                                },
+                              }}
+                            >
+                              {processedText}
+                            </ReactMarkdown>
 
-                              return (
-                                <button
-                                  onClick={(e) => { e.preventDefault(); if (ref?.code) onCitationClick(ref.code); }}
-                                  className="inline-flex items-center justify-center w-5 h-5 ml-1 text-[10px] font-bold text-white bg-blue-500 rounded-full hover:bg-blue-600 cursor-pointer shadow-sm align-middle hover:scale-110 transition-transform"
-                                  title={ref ? ref.title : `Nguồn ${idxStr}`}
-                                >
-                                  {idxStr}
-                                </button>
-                              );
-                            }
-                            return <a href={href} className="text-blue-600 underline" {...props}>{children}</a>;
-                          },
-                        }}
-                      >
-                        {msg.text.replace(/\[\s*(?:Nguồn\s*)?(\d+)\s*\]/gi, '[$1](#citation-$1)')}
-                      </ReactMarkdown>
+                            {msg.taxes && msg.taxes.length > 0 && (
+                              <div className="mt-3 space-y-2 bg-blue-50 p-3.5 rounded-xl border border-blue-200/60">
+                                <h3 className="font-bold text-blue-600 text-sm">1. Thuế suất:</h3>
+                                <ul className="list-disc pl-5 space-y-1.5 text-xs sm:text-sm">
+                                  {msg.taxes.map((t, idx) => (
+                                    <li key={idx}>
+                                      <strong className="text-slate-900">{t.label}:</strong>{' '}
+                                      <span className="font-bold text-blue-600">{t.rate}</span>
+                                      {t.citationCode && (
+                                        <button
+                                          onClick={() => onCitationClick(t.citationCode!)}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-600 text-white text-[10px] font-bold uppercase rounded hover:bg-blue-700 transition-colors cursor-pointer border border-blue-700/50 shadow-sm"
+                                        >
+                                          <span className="w-1.5 h-1.5 rounded-full bg-blue-300" />
+                                          {t.citationCode}
+                                        </button>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {msg.inspections && (
+                              <div className="mt-3 space-y-1.5 bg-blue-50 p-3.5 rounded-xl border border-blue-200/60">
+                                <h3 className="font-bold text-blue-600 text-sm">2. Kiểm tra chuyên ngành:</h3>
+                                <p className="text-xs sm:text-sm text-slate-600">
+                                  {msg.inspections.description}
+                                  {msg.inspections.citationCode && (
+                                    <button
+                                      onClick={() => onCitationClick(msg.inspections!.citationCode!)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-600 text-white text-[10px] font-bold uppercase rounded hover:bg-blue-700 transition-colors cursor-pointer border border-blue-700/50 shadow-sm"
+                                    >
+                                      <span className="w-1.5 h-1.5 rounded-full bg-blue-300" />
+                                      {msg.inspections.citationCode}
+                                    </button>
+                                  )}
+                                </p>
+                              </div>
+                            )}
+
+                            {orderedCitations.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-slate-200/60">
+                                <h3 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
+                                  <span className="text-lg">📚</span> Nguồn tham khảo:
+                                </h3>
+                                <ul className="space-y-2">
+                                  {orderedCitations.map((c: any) => (
+                                    <li key={c.id} className="text-xs sm:text-sm text-slate-600 flex items-start gap-2">
+                                      <span className="font-bold text-blue-600 shrink-0">[{c._visualId}]</span>
+                                      <div className="flex-1">
+                                        <span className="font-semibold text-slate-800">{c.code || c.title}</span>
+                                        {c.summary && <p className="mt-0.5 text-slate-500 line-clamp-2">{c.summary}</p>}
+                                      </div>
+                                      <div className="flex flex-col gap-1.5 shrink-0 ml-2">
+                                        <button
+                                          onClick={() => onCitationClick(c.code)}
+                                          className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1 whitespace-nowrap"
+                                        >
+                                          <FileText size={14} /> Chi tiết
+                                        </button>
+                                        {c.pdfUrl && c.pdfUrl !== '#' && (
+                                          <a
+                                            href={c.pdfUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1 whitespace-nowrap"
+                                          >
+                                            <Download size={14} /> Xem PDF
+                                          </a>
+                                        )}
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()
                     )}
                   </div>
 
-                  {/* Taxes Breakdown if available */}
-                  {msg.taxes && msg.taxes.length > 0 && (
-                    <div className="space-y-2 bg-blue-50 p-3.5 rounded-xl border border-blue-200/60">
-                      <h3 className="font-bold text-blue-600 text-sm">1. Thuế suất:</h3>
-                      <ul className="list-disc pl-5 space-y-1.5 text-xs sm:text-sm">
-                        {msg.taxes.map((t, idx) => (
-                          <li key={idx}>
-                            <strong className="text-slate-900">{t.label}:</strong>{' '}
-                            <span className="font-bold text-blue-600">{t.rate}</span>
-                            {t.citationCode && (
-                              <button
-                                onClick={() => onCitationClick(t.citationCode!)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-600 text-white text-[10px] font-bold uppercase rounded hover:bg-blue-700 transition-colors cursor-pointer border border-blue-700/50 shadow-sm"
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-300" />
-                                {t.citationCode}
-                              </button>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Inspections / Special Regulations */}
-                  {msg.inspections && (
-                    <div className="space-y-1.5 bg-blue-50 p-3.5 rounded-xl border border-blue-200/60">
-                      <h3 className="font-bold text-blue-600 text-sm">2. Kiểm tra chuyên ngành:</h3>
-                      <p className="text-xs sm:text-sm text-slate-600">
-                        {msg.inspections.description}
-                        {msg.inspections.citationCode && (
-                          <button
-                            onClick={() => onCitationClick(msg.inspections!.citationCode!)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 ml-2 bg-blue-600 text-white text-[10px] font-bold uppercase rounded hover:bg-blue-700 transition-colors cursor-pointer border border-blue-700/50 shadow-sm"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-300" />
-                            {msg.inspections.citationCode}
-                          </button>
-                        )}
-                      </p>
-                    </div>
-                  )}
-
                   {/* Download Summary PDF Button */}
                   {msg.summaryPdf && (
-                    <div className="pt-2 border-t border-blue-200/60">
+                    <div className="pt-2 mt-3 border-t border-slate-100">
                       <button
                         onClick={() => onOpenPdfModal(msg)}
-                        className="text-xs sm:text-sm text-blue-600 font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
+                        className="text-xs sm:text-sm text-blue-600 font-bold flex items-center gap-1.5 hover:underline cursor-pointer bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100"
                       >
                         <Download size={18} weight="bold" />
                         {msg.summaryPdf.title}
                       </button>
+                    </div>
+                  )}
+
+                  {/* Action Bar */}
+                  <div className="flex items-center gap-2 pt-3 mt-2 border-t border-slate-100">
+                    <button onClick={() => handleCopyText(msg.id, msg.text)} className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors" title="Sao chép">
+                      {copiedMsgId === msg.id ? <Check size={16} className="text-emerald-600" /> : <Copy size={16} />}
+                    </button>
+                    <button onClick={() => handleSpeakText(msg.id, msg.text)} className={`p-1.5 rounded-lg transition-colors ${speakingMsgId === msg.id ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`} title="Đọc văn bản">
+                      <SpeakerHigh size={16} weight={speakingMsgId === msg.id ? 'fill' : 'regular'} />
+                    </button>
+                    <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                    <button className="text-slate-400 hover:text-blue-600 p-1.5 rounded-lg hover:bg-blue-50 transition-colors" title="Câu trả lời tốt">
+                      <ThumbsUp size={16} />
+                    </button>
+                    <button className="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Câu trả lời chưa tốt">
+                      <ThumbsDown size={16} />
+                    </button>
+                  </div>
+
+                  {/* Follow-up chips */}
+                  {!isGenerating && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(msg.followUpQuestions && msg.followUpQuestions.length > 0
+                        ? msg.followUpQuestions
+                        : ["Giải thích chi tiết hơn?", "Điều kiện áp dụng là gì?", "Quy trình thực hiện?"]
+                      ).map((q, qIdx) => (
+                        <button
+                          key={qIdx}
+                          onClick={() => onSendMessage(q)}
+                          className="text-[11px] sm:text-xs px-3 py-1.5 bg-slate-50 border border-slate-200 text-slate-700 rounded-full hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-colors flex items-center gap-1.5 font-medium cursor-pointer"
+                        >
+                          <span className="text-blue-500">✨</span> {q}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -374,18 +588,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <Paperclip size={20} weight="regular" />
             </button>
 
-            <textarea
-              id="chatMessageInput"
-              name="chatMessage"
-              ref={textareaRef}
-              value={inputText}
-              onChange={handleTextareaInput}
-              onKeyDown={handleTextareaKeyDown}
-              onPaste={handlePaste}
-              placeholder="Nhập câu hỏi hoặc số tờ khai hải quan..."
-              rows={1}
-              className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none max-h-36 min-h-[44px] py-2 px-1 text-sm sm:text-base text-slate-900 placeholder-[#757682]"
-            />
+            <div className="flex flex-col w-full">
+              <textarea
+                id="chatMessageInput"
+                name="chatMessage"
+                ref={textareaRef}
+                value={inputText}
+                onChange={handleTextareaInput}
+                onKeyDown={handleTextareaKeyDown}
+                onPaste={handlePaste}
+                placeholder="Nhập câu hỏi hoặc số tờ khai hải quan..."
+                rows={1}
+                className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none max-h-36 min-h-[44px] py-2 px-1 text-sm sm:text-base text-slate-900 placeholder-[#757682]"
+              />
+              <div className="hidden sm:flex justify-end px-1 pb-1">
+                <span className="text-[10px] text-slate-400 font-medium">
+                  <kbd className="font-sans bg-slate-100 border border-slate-200 px-1 rounded">Enter</kbd> gửi • 
+                  <kbd className="font-sans bg-slate-100 border border-slate-200 px-1 rounded ml-1">Shift</kbd> + 
+                  <kbd className="font-sans bg-slate-100 border border-slate-200 px-1 rounded">Enter</kbd> xuống dòng
+                </span>
+              </div>
+            </div>
 
             <RippleButton
               type="submit"

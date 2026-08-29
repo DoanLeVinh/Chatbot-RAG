@@ -8,6 +8,7 @@ export interface LegalCitation {
   summary: string;
   fullText?: string;
   pdfUrl?: string;
+  pageNumber?: number;
 }
 
 export interface Attachment {
@@ -43,6 +44,9 @@ export interface ChatMessage {
     downloadUrl?: string;
   };
   isThinking?: boolean;
+  followUpQuestions?: string[];
+  imageUrl?: string;
+  currentStage?: string;
 }
 
 export interface ChatSession {
@@ -55,7 +59,20 @@ export interface ChatSession {
   previewText: string;
   messages: ChatMessage[];
   references: LegalCitation[];
-  attachments?: Attachment[];
+  documents?: Attachment[];
+}
+
+export interface UserUsage {
+  plan: 'free' | 'pro';
+  expiry: string | null;
+  usage: {
+    messages: number;
+    images: number;
+  };
+  limits: {
+    messages: number; // -1 means unlimited
+    images: number;
+  };
 }
 
 export type ActiveScreen = 'landing' | 'chat' | 'history';

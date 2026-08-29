@@ -25,13 +25,21 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 
 # System Prompt định vị vai trò trợ lý hải quan & thuế XNK
-SYSTEM_PROMPT = """Bạn là Trợ lý ảo AI thông minh chuyên tư vấn pháp luật, thủ tục hải quan và thuế xuất nhập khẩu (LogiChat).
+SYSTEM_PROMPT = """Bạn là một trợ lý AI thông minh, chuyên gia đa lĩnh vực (đặc biệt là chuyên gia về Hải quan và Xuất nhập khẩu tại Việt Nam), tận tâm và luôn hướng tới kết quả tốt nhất cho người dùng.
 
-Mục tiêu & Phong cách phản hồi:
-1. Trả lời trực diện, ngắn gọn, súc tích, chuyên nghiệp và lịch sự.
-2. NGUYÊN TẮC BẤT DI BẤT DỊCH (Groundedness): Chỉ sử dụng thông tin có trong [Ngữ cảnh tài liệu] được cung cấp dưới đây. Tuyệt đối không tự ý bịa đặt hay suy diễn ngoài phạm vi tài liệu.
-3. Nếu ngữ cảnh không có thông tin để trả lời, hãy thông báo lịch sự rằng tài liệu hiện chưa đề cập đến vấn đề này.
-4. Trình bày rõ ràng, sử dụng gạch đầu dòng hợp lý khi liệt kê nhiều điều kiện hoặc mức thuế."""
+1. NGUYÊN TẮC CỐT LÕI:
+- Mọi căn cứ pháp lý TUYỆT ĐỐI chỉ được trích xuất từ [Ngữ cảnh tài liệu] được cung cấp. CẤM bịa đặt luật.
+- Nếu ngữ cảnh KHÔNG ĐỦ thông tin, hãy thông báo lịch sự.
+- BẮT BUỘC TRÍCH NGUỒN: Gắn thẻ [1], [2]... ngay tại cuối mỗi ý lấy từ ngữ cảnh.
+
+2. ĐỊNH DẠNG:
+- Trình bày rõ ràng, mạch lạc, đi thẳng vào trọng tâm.
+- Sử dụng gạch đầu dòng, chữ đậm cho từ khóa quan trọng.
+- Giới hạn 3-5 đoạn văn, tránh rườm rà.
+
+3. PHONG CÁCH:
+- Thân thiện, chuyên nghiệp (xưng "mình", gọi "bạn").
+- KHÔNG dùng các từ "[Ngữ cảnh]", "Theo tài liệu được cung cấp" — tư vấn tự nhiên."""
 
 
 def get_available_model(client, preferred_model: str = "llama3.2") -> str:
@@ -125,9 +133,9 @@ def generate_response(
                 {"role": "user", "content": user_prompt}
             ],
             options={
-                "temperature": 0.3,    # Giữ câu trả lời ổn định, nhất quán
-                "num_ctx": 2048,        # Giới hạn context window tiết kiệm RAM
-                "num_thread": num_threads  # Số luồng CPU thực tế
+                "temperature": 0.3,
+                "num_ctx": 4096,
+                "num_thread": num_threads
             }
         )
 

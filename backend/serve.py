@@ -274,6 +274,7 @@ class ChatIn(BaseModel):
     prompt: str
     sessionId: Optional[str] = None
     userId: Optional[str] = None
+    aiModel: Optional[str] = 'logi_fast'
 
 class AuthIn(BaseModel):
     email: str
@@ -291,6 +292,7 @@ class AdminUserUpdateReq(BaseModel):
     fullName: str
     password: Optional[str] = None
     role: Optional[str] = None
+    subscription_plan: Optional[str] = None
 
 class AdminChunkCreateReq(BaseModel):
     source: str
@@ -352,6 +354,16 @@ async def api_query(q: QueryIn):
 @app.post('/api/chat')
 async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_current_user_optional)):
     r = get_retriever()
+    effective_user_id = user_payload["id"] if user_payload else req.userId
+
+    if effective_user_id:
+        db_user = db.get_user_by_id(effective_user_id)
+        if db_user:
+            plan = db_user.get("subscriptionPlan", "free")
+            if plan == "free":
+                messages_count = db.get_daily_message_count(effective_user_id)
+                if messages_count >= 10:
+                    raise HTTPException(status_code=402, detail="limit_reached_messages")
 
     # Retrieve last 4 messages (2 pairs) for sliding window memory
     chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
@@ -362,8 +374,8 @@ async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_curre
         scoped_chunks = db.get_session_document_chunks(req.sessionId)
         answer, sources, provider = r.synthesize_scoped(req.prompt, scoped_chunks, top_k=2, max_sentences=5)
     else:
-        # Giảm top_k từ 5 xuống 2 để LLM không bị ngợp context, tăng tốc độ sinh chữ (giảm TTFT)
-        answer, sources, provider = r.synthesize(req.prompt, chat_history=chat_history, top_k=3, max_sentences=5)
+        # Giảm top_k xuống 2 để tối ưu tốc độ phản hồi
+        answer, sources, provider = r.synthesize(req.prompt, chat_history=chat_history, top_k=2, max_sentences=5, ai_model=req.aiModel)
 
     # Extract structured data
     hs_code = _extract_hs_code(req.prompt + ' ' + answer)
@@ -414,45 +426,67 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
     r = get_retriever()
     effective_user_id = user_payload["id"] if user_payload else req.userId
 
+    if effective_user_id:
+        db_user = db.get_user_by_id(effective_user_id)
+        if db_user:
+            plan = db_user.get("subscriptionPlan", "free")
+            if plan == "free":
+                messages_count = db.get_daily_message_count(effective_user_id)
+                if messages_count >= 10:
+                    raise HTTPException(status_code=402, detail="limit_reached_messages")
+
     async def event_generator() -> AsyncGenerator[str, None]:
         full_answer = ""
         provider = "local"
         sources = []
-        # Send pipeline stage indicators before streaming begins
+        # 1. Bắt đầu tìm kiếm
         yield f"data: {json.dumps({'stage': '🔍 Đang tìm kiếm văn bản pháp luật liên quan...'}, ensure_ascii=False)}\n\n"
         await asyncio.sleep(0)
 
-        # Retrieve sliding window memory
+        # Lấy lịch sử
         chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
 
+        # 2. Phân tích & Rerank (chạy trong thread để không block event loop)
         yield f"data: {json.dumps({'stage': '⚖️ Đang phân tích và đánh giá mức độ phù hợp...'}, ensure_ascii=False)}\n\n"
         await asyncio.sleep(0)
+        
+        loop = asyncio.get_event_loop()
+        scoped_chunks = db.get_session_document_chunks(req.sessionId) if req.sessionId else []
+        
+        if scoped_chunks and ("Văn bản trích xuất từ ảnh" in req.prompt or True): # For simplicity, if there are scoped chunks, prioritize them
+            parents = [{'source': c.get('source', 'Tài liệu đã tải lên'), 'start_index': c.get('chunk_index', 0), 'chapter': None, 'text': c['text'], 'best_child_score': 1.0} for c in scoped_chunks]
+            children = []
+        else:
+            parents, children = await loop.run_in_executor(None, r.retrieve_parents, req.prompt, 2)
 
-        # Consume the generator synchronously but yield async for SSE
-        first_chunk = True
-        for chunk in r.synthesize_stream(req.prompt, chat_history=chat_history, top_k=3):
-            if first_chunk:
-                yield f"data: {json.dumps({'stage': '✍️ Đang tổng hợp câu trả lời...'}, ensure_ascii=False)}\n\n"
-                await asyncio.sleep(0)
-                first_chunk = False
-            if chunk["type"] == "text":
-                text = chunk["content"]
-                full_answer += text
-                
-                if chunk.get("sources") and not sources:
-                    sources = chunk["sources"]
-                    # Stream citations early to frontend
-                    early_citations = _build_legal_citations(sources)
-                    if early_citations:
-                        yield f"data: {json.dumps({'citations': early_citations}, ensure_ascii=False)}\n\n"
-                        await asyncio.sleep(0)
-                
-                payload = json.dumps({"token": text}, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
-                await asyncio.sleep(0) # Yield control
-            elif chunk["type"] == "error":
-                yield f"data: {json.dumps({'error': chunk['content']}, ensure_ascii=False)}\n\n"
-                return
+        # 3. Tổng hợp LLM
+        yield f"data: {json.dumps({'stage': '✍️ Đang tổng hợp câu trả lời...'}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0)
+
+        from retriever_local import _refine_with_llm_router_stream
+        
+        if not parents and not children:
+            yield f"data: {json.dumps({'token': 'Tôi không tìm thấy thông tin phù hợp trong các văn bản pháp luật được cung cấp.'}, ensure_ascii=False)}\n\n"
+            full_answer = "Tôi không tìm thấy thông tin phù hợp trong các văn bản pháp luật được cung cấp."
+        else:
+            for chunk in _refine_with_llm_router_stream(req.prompt, parents, chat_history, ai_model=req.aiModel):
+                if chunk["type"] == "text":
+                    text = chunk["content"]
+                    full_answer += text
+                    
+                    if chunk.get("sources") and not sources:
+                        sources = chunk["sources"]
+                        early_citations = _build_legal_citations(sources)
+                        if early_citations:
+                            yield f"data: {json.dumps({'citations': early_citations}, ensure_ascii=False)}\n\n"
+                            await asyncio.sleep(0)
+                    
+                    payload = json.dumps({"token": text}, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+                    await asyncio.sleep(0)
+                elif chunk["type"] == "error":
+                    yield f"data: {json.dumps({'error': chunk['content']}, ensure_ascii=False)}\n\n"
+                    return
 
         # End of stream extraction
         hs_code = _extract_hs_code(req.prompt + ' ' + full_answer)
@@ -800,6 +834,15 @@ async def upload_file(
     file_url = f'/uploads/{unique_name}'
     effective_user_id = current_user["id"] if current_user else userId
 
+    if file_type == 'image' and effective_user_id:
+        db_user = db.get_user_by_id(effective_user_id)
+        if db_user:
+            plan = db_user.get("subscriptionPlan", "free")
+            if plan == "free":
+                images_count = db.get_daily_image_upload_count(effective_user_id)
+                if images_count >= 5:
+                    raise HTTPException(status_code=402, detail="limit_reached_images")
+
     # Save to SQLite
     attachment = db.save_attachment(sessionId, effective_user_id, file.filename, size_str, file_type, file_url)
 
@@ -809,6 +852,7 @@ async def upload_file(
     extracted_text = None
     
     if file_type == 'image':
+        # Strategy: Try Gemini/OpenRouter Vision first (best quality), fallback to Tesseract OCR (offline)
         try:
             import base64
             from llm_router import get_llm_router
@@ -822,11 +866,39 @@ async def upload_file(
             extracted = router.extract_text_from_image(image_b64, mime_type)
             if extracted:
                 extracted_text = extracted
-                print(f"[Upload] Đã trích xuất thành công chữ từ ảnh {file.filename}")
+                print(f"[Upload] OCR (LLM Vision) OK: {file.filename}")
             else:
-                print(f"[Upload] Không trích xuất được chữ từ ảnh {file.filename} (không có phản hồi từ LLM)")
+                print(f"[Upload] LLM Vision returned empty for {file.filename}, trying Tesseract fallback...")
+                raise ValueError("LLM Vision returned empty")
         except Exception as e:
-            print(f"[Upload] Lỗi trích xuất chữ từ ảnh {file.filename}: {e}")
+            print(f"[Upload] LLM Vision failed ({e}), attempting Tesseract OCR fallback...")
+            # Tesseract Fallback
+            try:
+                import pytesseract
+                from PIL import Image
+                import io
+                
+                # Auto-detect Tesseract path on Windows
+                tesseract_paths = [
+                    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                    r"C:\Users\VINH\AppData\Local\Programs\Tesseract-OCR\tesseract.exe",
+                ]
+                for tp in tesseract_paths:
+                    if Path(tp).exists():
+                        pytesseract.pytesseract.tesseract_cmd = tp
+                        break
+                
+                img = Image.open(io.BytesIO(content))
+                # Try Vietnamese + English OCR
+                ocr_text = pytesseract.image_to_string(img, lang='vie+eng')
+                if ocr_text and ocr_text.strip():
+                    extracted_text = ocr_text.strip()
+                    print(f"[Upload] OCR (Tesseract) OK: {file.filename} ({len(extracted_text)} chars)")
+                else:
+                    print(f"[Upload] Tesseract returned empty for {file.filename}")
+            except Exception as tess_err:
+                print(f"[Upload] Tesseract fallback also failed: {tess_err}")
 
     if sessionId:
         if ext in ('.pdf', '.txt'):
@@ -850,6 +922,53 @@ async def upload_file(
         'extractedText': extracted_text,
     })
 
+
+# ═══════════════════════════════════════════════════════════════════
+# USER USAGE & SUBSCRIPTION API
+# ═══════════════════════════════════════════════════════════════════
+
+@app.get('/api/user/usage')
+async def get_user_usage(userId: str):
+    user_id = userId
+    db_user = db.get_user_by_id(user_id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    plan = db_user.get("subscriptionPlan", "free")
+    messages_count = db.get_daily_message_count(user_id)
+    images_count = db.get_daily_image_upload_count(user_id)
+    
+    limits = {
+        "messages": 10 if plan == "free" else -1,
+        "images": 5 if plan == "free" else -1
+    }
+    
+    return JSONResponse({
+        "plan": plan,
+        "expiry": db_user.get("subscriptionExpiry"),
+        "usage": {
+            "messages": messages_count,
+            "images": images_count
+        },
+        "limits": limits
+    })
+
+class CheckoutIn(BaseModel):
+    plan: str
+    userId: str
+
+@app.post('/api/payment/checkout')
+async def process_checkout(req: CheckoutIn):
+    user_id = req.userId
+    
+    # In a real app, this would generate a Stripe Checkout URL or VNPay URL.
+    # Here we mock it by returning a fake QR/Checkout page URL.
+    checkout_url = f"/checkout-mock?plan={req.plan}&user={user_id}"
+    
+    return JSONResponse({
+        "success": True,
+        "checkoutUrl": checkout_url
+    })
 
 # ═══════════════════════════════════════════════════════════════════
 # SETTINGS API — User Isolated Settings
@@ -1193,7 +1312,7 @@ async def admin_create_user(req: AdminUserCreateReq, admin: dict = Depends(requi
 @app.put('/api/admin/users/{user_id}')
 async def admin_update_user(user_id: str, req: AdminUserUpdateReq, admin: dict = Depends(require_admin_user)):
     try:
-        success = db.update_user(user_id, req.email, req.fullName, req.password, role=req.role)
+        success = db.update_user(user_id, req.email, req.fullName, req.password, role=req.role, subscription_plan=req.subscription_plan)
         if success:
             return {"success": True}
         raise HTTPException(status_code=404, detail="Không tìm thấy người dùng.")

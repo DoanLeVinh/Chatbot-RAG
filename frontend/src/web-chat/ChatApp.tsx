@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ActiveScreen, ChatSession, ChatMessage, LegalCitation } from '../shared/types';
+import ProBackground from './ProEffects';
+import { ActiveScreen, ChatSession, ChatMessage, LegalCitation, UserUsage } from '../shared/types';
 import { LandingPage } from './LandingPage';
 import { Sidebar } from '../shared/components/Sidebar';
 import { Resizer } from '../shared/components/Resizer';
@@ -11,6 +12,8 @@ import { PdfModal } from './PdfModal';
 import { SettingsModal } from '../shared/components/SettingsModal';
 import { LiquidLoader } from '../shared/components/LiquidLoader';
 import { WaterRippleMouse } from '../shared/components/WaterRippleMouse';
+import { UpgradeModal } from './UpgradeModal';
+import { PricingPage } from '../pages/PricingPage';
 
 const createDefaultBlankSession = (): ChatSession => ({
   id: `session-${Date.now()}`,
@@ -59,6 +62,13 @@ export default function App() {
     }
   });
 
+  // Subscription and Usage state
+  const [userUsage, setUserUsage] = useState<UserUsage | null>(null);
+  const [aiModel, setAiModel] = useState<'logi_fast' | 'logi_think'>('logi_fast');
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<'messages' | 'images' | 'manual'>('manual');
+  const [isPricingPageOpen, setIsPricingPageOpen] = useState(false);
+
   // Modals state
   const [authModal, setAuthModal] = useState<{
     isOpen: boolean;
@@ -97,6 +107,20 @@ export default function App() {
   const [highlightedCitationCode, setHighlightedCitationCode] = useState<string | null>(null);
 
   // ─── Load User-Isolated Sessions from Backend ────────────────────
+  const fetchUserUsage = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const userIdParam = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
+      const res = await fetch(`/api/user/usage${userIdParam}`);
+      if (res.ok) {
+        const data = await res.json();
+        setUserUsage(data);
+      }
+    } catch (err) {
+      console.log('Error fetching user usage');
+    }
+  }, [currentUser]);
+
   const loadSessionsFromBackend = useCallback(async () => {
     try {
       const userIdParam = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
@@ -133,7 +157,8 @@ export default function App() {
 
   useEffect(() => {
     loadSessionsFromBackend();
-  }, [loadSessionsFromBackend]);
+    fetchUserUsage();
+  }, [loadSessionsFromBackend, fetchUserUsage]);
 
   // Get active session
   const activeSession =
@@ -177,18 +202,72 @@ export default function App() {
   const handleSendMessage = async (text: string, file?: File) => {
     if (!text.trim() && !file) return;
 
-    let userMessageText = text.trim() || (file ? `[Đính kèm file: ${file.name}]` : '');
     const userMsgId = `usr-${Date.now()}`;
     const timestampStr = new Date().toLocaleTimeString('vi-VN', {
       hour: '2-digit',
       minute: '2-digit',
     });
 
-    // Upload file if attached
+    // Optimistic UI: Show user message IMMEDIATELY (including image preview)
+    let optimisticText = text.trim() || (file ? `[Đính kèm: ${file.name}]` : '');
+    const imagePreviewUrl = file && file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+
+    const userMsg: ChatMessage = {
+      id: userMsgId,
+      sender: 'user',
+      text: optimisticText,
+      timestamp: timestampStr,
+      imageUrl: imagePreviewUrl,
+    };
+
+    // Immediately update UI with user message
+    const updatedSessions = sessions.map((s) => {
+      if (s.id === activeSession.id) {
+        return {
+          ...s,
+          title: s.title === 'Hội thoại tư vấn mới' ? optimisticText.slice(0, 36) : s.title,
+          previewText: optimisticText,
+          updatedAt: 'Hôm nay',
+          messages: [...s.messages, userMsg],
+        };
+      }
+      return s;
+    });
+    setSessions(updatedSessions);
+    setIsGenerating(true);
+
+    // Upload file in background (if any)
+    let finalUserMessageText = optimisticText;
     let uploadedFile: any = null;
     let scopedRagJustEnabled = false;
     let scopedRagError: string | null = null;
+
     if (file) {
+      // Show AI placeholder with image analysis stage
+      const aiMsgId = `ai-${Date.now()}`;
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id === activeSession.id) {
+            return {
+              ...s,
+              messages: [
+                ...s.messages,
+                {
+                  id: aiMsgId,
+                  sender: 'ai' as const,
+                  text: '',
+                  currentStage: file.type.startsWith('image/') 
+                    ? '📷 Đang phân tích hình ảnh...'
+                    : '📎 Đang xử lý tệp đính kèm...',
+                  timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                },
+              ],
+            };
+          }
+          return s;
+        })
+      );
+
       try {
         const formData = new FormData();
         formData.append('file', file);
@@ -202,6 +281,25 @@ export default function App() {
           method: 'POST',
           body: formData,
         });
+
+        if (uploadRes.status === 402) {
+          setIsGenerating(false);
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id === activeSession.id) {
+                const msgs = [...s.messages];
+                const idx = msgs.findIndex((m) => m.id === aiMsgId);
+                if (idx !== -1) msgs.splice(idx, 1);
+                return { ...s, messages: msgs };
+              }
+              return s;
+            })
+          );
+          setUpgradeReason('images');
+          setIsUpgradeModalOpen(true);
+          return;
+        }
+
         if (uploadRes.ok) {
           const uploadData = await uploadRes.json();
           uploadedFile = uploadData.file;
@@ -212,62 +310,63 @@ export default function App() {
           }
           if (uploadData.extractedText) {
             const extracted = uploadData.extractedText;
-            userMessageText = text.trim() 
+            finalUserMessageText = text.trim() 
               ? `${text.trim()}\n\n[Văn bản trích xuất từ ảnh ${uploadedFile.name}]:\n${extracted}` 
               : `[Văn bản trích xuất từ ảnh ${uploadedFile.name}]:\n${extracted}`;
           } else if (!text.trim()) {
-            userMessageText = `[Đính kèm: ${uploadedFile.name}]`;
+            finalUserMessageText = `[Đính kèm: ${uploadedFile.name}]`;
           }
         }
       } catch {
         console.log('File upload failed, continuing without attachment');
       }
-    }
 
-    const userMsg: ChatMessage = {
-      id: userMsgId,
-      sender: 'user',
-      text: userMessageText,
-      timestamp: timestampStr,
-    };
-
-    const systemNoticeMsg: ChatMessage | null = scopedRagJustEnabled
-      ? {
-        id: `sys-${Date.now()}`,
-        sender: 'ai',
-        text: `🔒 Đã nhận và xử lý "${uploadedFile?.name}". Từ giờ trong cuộc trò chuyện này, tôi sẽ CHỈ trả lời dựa trên nội dung tài liệu bạn vừa tải lên. Nếu muốn hỏi về kho luật chung, hãy bắt đầu một "Trò chuyện mới".`,
-        timestamp: timestampStr,
-      }
-      : scopedRagError
-        ? {
+      // Add system notice if scoped RAG activated
+      if (scopedRagJustEnabled || scopedRagError) {
+        const noticeMsg: ChatMessage = {
           id: `sys-${Date.now()}`,
           sender: 'ai',
-          text: `⚠️ ${scopedRagError}`,
+          text: scopedRagJustEnabled
+            ? `🔒 Đã nhận và xử lý "${uploadedFile?.name}". Từ giờ trong cuộc trò chuyện này, tôi sẽ CHỈ trả lời dựa trên nội dung tài liệu bạn vừa tải lên. Nếu muốn hỏi về kho luật chung, hãy bắt đầu một "Trò chuyện mới".`
+            : `⚠️ ${scopedRagError}`,
           timestamp: timestampStr,
-        }
-        : null;
-
-    // Update session with user message
-    const updatedSessions = sessions.map((s) => {
-      if (s.id === activeSession.id) {
-        return {
-          ...s,
-          title: s.title === 'Hội thoại tư vấn mới' ? userMessageText.slice(0, 36) : s.title,
-          previewText: userMessageText,
-          updatedAt: 'Hôm nay',
-          messages: systemNoticeMsg
-            ? [...s.messages, userMsg, systemNoticeMsg]
-            : [...s.messages, userMsg],
-          attachments: uploadedFile
-            ? [...(s.attachments || []), uploadedFile]
-            : s.attachments,
         };
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id === activeSession.id) {
+              return { ...s, messages: [...s.messages, noticeMsg] };
+            }
+            return s;
+          })
+        );
       }
-      return s;
-    });
 
-    setSessions(updatedSessions);
-    setIsGenerating(true);
+      // Update user message text with extracted content & update attachments
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id === activeSession.id) {
+            const msgs = [...s.messages];
+            const userIdx = msgs.findIndex((m) => m.id === userMsgId);
+            if (userIdx !== -1) {
+              msgs[userIdx] = { ...msgs[userIdx], text: finalUserMessageText };
+            }
+            // Remove the temporary AI placeholder (will be recreated below)
+            const aiPlaceholderIdx = msgs.findIndex((m) => m.id === aiMsgId);
+            if (aiPlaceholderIdx !== -1) {
+              msgs.splice(aiPlaceholderIdx, 1);
+            }
+            return {
+              ...s,
+              messages: msgs,
+              attachments: uploadedFile
+                ? [...(s.attachments || []), uploadedFile]
+                : s.attachments,
+            };
+          }
+          return s;
+        })
+      );
+    }
 
     try {
       // Create a placeholder message for AI
@@ -281,8 +380,9 @@ export default function App() {
                 ...s.messages,
                 {
                   id: aiMsgId,
-                  sender: 'ai',
+                  sender: 'ai' as const,
                   text: '',
+                  currentStage: '🔍 Đang tìm kiếm văn bản pháp luật liên quan...',
                   timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                 },
               ],
@@ -297,11 +397,31 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: userMessageText,
+          prompt: finalUserMessageText,
           sessionId: activeSession.id,
           userId: currentUser?.id || null,
+          aiModel: aiModel,
         }),
       });
+
+      if (res.status === 402) {
+        setIsGenerating(false);
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id === activeSession.id) {
+              const msgs = [...s.messages];
+              const idx = msgs.findIndex((m) => m.id === aiMsgId);
+              if (idx !== -1) msgs.splice(idx, 1);
+              return { ...s, messages: msgs };
+            }
+            return s;
+          })
+        );
+        const errData = await res.json();
+        setUpgradeReason(errData.detail === 'limit_reached_images' ? 'images' : 'messages');
+        setIsUpgradeModalOpen(true);
+        return;
+      }
 
       if (!res.body) throw new Error("No readable stream");
 
@@ -332,7 +452,7 @@ export default function App() {
                       if (s.id === activeSession.id) {
                         const msgs = [...s.messages];
                         const idx = msgs.findIndex((m) => m.id === aiMsgId);
-                        if (idx !== -1) msgs[idx] = { ...msgs[idx], text: currentText };
+                        if (idx !== -1) msgs[idx] = { ...msgs[idx], text: currentText, currentStage: undefined };
                         return { ...s, messages: msgs };
                       }
                       return s;
@@ -361,13 +481,13 @@ export default function App() {
                     })
                   );
                 } else if (parsed.stage) {
-                  // Pipeline stage indicator: cập nhật AI message với nội dung stage
+                  // Pipeline stage indicator: update currentStage field (NOT msg.text)
                   setSessions((prev) =>
                     prev.map((s) => {
                       if (s.id === activeSession.id) {
                         const msgs = [...s.messages];
                         const idx = msgs.findIndex((m) => m.id === aiMsgId);
-                        if (idx !== -1) msgs[idx] = { ...msgs[idx], text: parsed.stage };
+                        if (idx !== -1) msgs[idx] = { ...msgs[idx], currentStage: parsed.stage };
                         return { ...s, messages: msgs };
                       }
                       return s;
@@ -521,7 +641,8 @@ export default function App() {
   return (
     <>
       {isAppLoading && <LiquidLoader onComplete={() => setIsAppLoading(false)} />}
-      <div className="min-h-[100dvh] bg-blue-50 text-slate-900 flex flex-col font-sans selection:bg-blue-200 selection:text-blue-600">
+      <div className={`min-h-[100dvh] text-slate-900 flex flex-col font-sans selection:bg-blue-200 selection:text-blue-600 ${userUsage?.plan === 'pro' ? 'bg-transparent' : 'bg-blue-50'}`}>
+        {userUsage?.plan === 'pro' && <ProBackground />}
         {/* Screen 1: Landing Page */}
         {activeScreen === 'landing' && (
           <LandingPage
@@ -558,8 +679,13 @@ export default function App() {
                   onCloseMobile={() => setIsMobileSidebarOpen(false)}
                   currentUser={currentUser}
                   onLogout={handleLogout}
+                  onToggleCollapse={() => setIsDesktopSidebarOpen(false)}
                   width={sidebarWidth}
-                  onCloseDesktop={() => setIsDesktopSidebarOpen(false)}
+                  userUsage={userUsage}
+                  onUpgradeClick={() => {
+                    setUpgradeReason('manual');
+                    setIsUpgradeModalOpen(true);
+                  }}
                 />
                 <Resizer
                   direction="left"
@@ -594,6 +720,13 @@ export default function App() {
                   onOpenPdfModal={openPdfModalFromMessage}
                   onCitationClick={handleCitationClick}
                   isGenerating={isGenerating}
+                  aiModel={aiModel}
+                  setAiModel={setAiModel}
+                  userPlan={userUsage?.plan || 'free'}
+                  onUpgradeClick={() => {
+                    setUpgradeReason('manual');
+                    setIsUpgradeModalOpen(true);
+                  }}
                 />
               ) : (
                 <HistoryView
@@ -659,7 +792,23 @@ export default function App() {
           isOpen={isSettingsOpen}
           onClose={() => setIsSettingsOpen(false)}
         />
+
+        <UpgradeModal
+          isOpen={isUpgradeModalOpen}
+          reason={upgradeReason}
+          onClose={() => setIsUpgradeModalOpen(false)}
+          onUpgrade={() => setIsPricingPageOpen(true)}
+        />
       </div>
+
+      {isPricingPageOpen && (
+        <div className="fixed inset-0 z-[100] bg-white dark:bg-slate-950 overflow-y-auto">
+          <PricingPage 
+            onBack={() => setIsPricingPageOpen(false)} 
+            userId={currentUser?.id || ''} 
+          />
+        </div>
+      )}
       {/* Global Water Ripple Effect */}
       <WaterRippleMouse />
     </>

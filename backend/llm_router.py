@@ -92,10 +92,9 @@ class LLMRouter:
             KeyState(k, "groq") for k in raw_groq.split(",") if k.strip()
         ]
         self.groq_models = [
-            "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
+            "llama-3.3-70b-versatile",
             "gemma2-9b-it",
-            "mixtral-8x7b-32768",
         ]
 
         # 6. Provider Priority Order
@@ -166,7 +165,7 @@ class LLMRouter:
             for model_name in self.openrouter_models:
                 payload = {
                     "model": model_name,
-                    "max_tokens": max_tokens,
+                    "max_tokens": min(max_tokens, 1000), # Tránh lỗi 402 khi credit quá thấp
                     "temperature": temperature,
                     "frequency_penalty": 0.2,
                     "presence_penalty": 0.2,
@@ -232,7 +231,7 @@ class LLMRouter:
             for model_name in self.openrouter_models:
                 payload = {
                     "model": model_name,
-                    "max_tokens": max_tokens,
+                    "max_tokens": min(max_tokens, 1000), # Tránh lỗi 402 khi credit quá thấp
                     "temperature": temperature,
                     "frequency_penalty": 0.2,
                     "presence_penalty": 0.2,
@@ -252,7 +251,7 @@ class LLMRouter:
                     method="POST"
                 )
                 try:
-                    with urllib.request.urlopen(req, timeout=30) as resp:
+                    with urllib.request.urlopen(req, timeout=60) as resp:
                         for line in resp:
                             if line:
                                 decoded_line = line.decode('utf-8').strip()
@@ -332,7 +331,7 @@ class LLMRouter:
                         method="POST"
                     )
                     try:
-                        with urllib.request.urlopen(req, timeout=30) as resp:
+                        with urllib.request.urlopen(req, timeout=60) as resp:
                             resp_data = json.loads(resp.read().decode("utf-8"))
                             if "candidates" in resp_data and len(resp_data["candidates"]) > 0:
                                 content = resp_data["candidates"][0]["content"]["parts"][0]["text"]
@@ -390,8 +389,8 @@ class LLMRouter:
                 "options": {
                     "temperature": temperature,
                     "num_predict": max_tokens,
-                    "num_ctx": 2048,
-                    "num_thread": max(1, os.cpu_count() or 4),
+                    "num_ctx": 4096,
+                    "num_thread": min(4, os.cpu_count() or 4),
                     "repeat_penalty": 1.1,
                     "top_p": 0.9
                 }
@@ -403,7 +402,7 @@ class LLMRouter:
                 method="POST"
             )
             try:
-                with urllib.request.urlopen(req, timeout=60) as resp:
+                with urllib.request.urlopen(req, timeout=180) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
                     msg = resp_data.get("message", {}).get("content", "")
                     if msg and msg.strip():
@@ -567,8 +566,8 @@ class LLMRouter:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
-                "num_ctx": 2048,
-                "num_thread": max(1, os.cpu_count() or 4),
+                "num_ctx": 4096,
+                "num_thread": min(4, os.cpu_count() or 4),
                 "repeat_penalty": 1.1,
                 "top_p": 0.9
             }
@@ -580,7 +579,7 @@ class LLMRouter:
             method="POST"
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=180) as resp:
                 for line in resp:
                     if line:
                         data = json.loads(line.decode("utf-8"))
@@ -594,12 +593,18 @@ class LLMRouter:
             logger.warning(f"Ollama Stream [{self.ollama_model}] Error: {exc}")
             raise exc
 
-    def generate_stream(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 3000, temperature: float = 0.2):
+    def generate_stream(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 3000, temperature: float = 0.2, ai_model: str = 'logi_fast'):
         """
         Stream RAG generation. Supports Groq and Ollama.
         Yields text chunks.
         """
-        for provider in self.provider_order:
+        providers = self.provider_order.copy()
+        if ai_model == 'logi_think':
+            # Priority for Think mode: OpenRouter -> Gemini -> OpenAI -> Groq -> Ollama
+            providers = ['openrouter', 'gemini', 'openai', 'groq', 'ollama']
+            max_tokens = min(max_tokens + 1000, 4000) # Give it more tokens to think
+
+        for provider in providers:
             if provider == "groq" and self.groq_keys:
                 try:
                     yield from self._call_groq_stream(system_prompt, user_prompt, chat_history, max_tokens, temperature)
@@ -645,12 +650,13 @@ class LLMRouter:
                 
         return None
 
-    def generate(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 4096, temperature: float = 0.2) -> Optional[Tuple[str, str]]:
-        """
-        Execute RAG generation across providers following priority order.
-        Returns: (answer_text, provider_info_string) or None if all fail.
-        """
-        for provider in self.provider_order:
+    def generate(self, system_prompt: str, user_prompt: str, chat_history: list = None, max_tokens: int = 4096, temperature: float = 0.2, ai_model: str = 'logi_fast') -> Optional[Tuple[str, str]]:
+        providers = self.provider_order.copy()
+        if ai_model == 'logi_think':
+            providers = ['openrouter', 'gemini', 'openai', 'groq', 'ollama']
+            max_tokens = min(max_tokens + 1000, 4000)
+
+        for provider in providers:
             if provider == "openrouter" and self.openrouter_keys:
                 res = self._call_openrouter(system_prompt, user_prompt, chat_history, max_tokens, temperature)
                 if res:

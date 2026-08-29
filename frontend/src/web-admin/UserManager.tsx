@@ -9,7 +9,7 @@ export default function UserManager() {
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [formData, setFormData] = useState({ id: '', email: '', full_name: '', password: '', role: 'user' });
+  const [formData, setFormData] = useState({ id: '', email: '', full_name: '', password: '', role: 'user', subscription_plan: 'free' });
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<any>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -85,6 +85,7 @@ export default function UserManager() {
         full_name: user.full_name,
         password: '',
         role: user.role || 'user',
+        subscription_plan: user.subscription_plan || 'free',
       });
     } else {
       setIsEditMode(false);
@@ -94,6 +95,7 @@ export default function UserManager() {
         full_name: '',
         password: '',
         role: 'user',
+        subscription_plan: 'free',
       });
     }
     setIsModalOpen(true);
@@ -107,6 +109,7 @@ export default function UserManager() {
           email: formData.email,
           fullName: formData.full_name,
           role: formData.role,
+          subscription_plan: formData.subscription_plan,
         };
         if (formData.password) payload.password = formData.password;
         
@@ -220,6 +223,7 @@ export default function UserManager() {
               <tr className="bg-slate-100/70 text-slate-600 text-xs font-semibold uppercase tracking-wider">
                 <th className="px-6 py-3.5">Người dùng</th>
                 <th className="px-6 py-3.5">Vai trò (Role)</th>
+                <th className="px-6 py-3.5">Gói cước</th>
                 <th className="px-6 py-3.5">Ngày tạo</th>
                 <th className="px-6 py-3.5 text-right">Thao tác</th>
               </tr>
@@ -227,13 +231,13 @@ export default function UserManager() {
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-slate-400">
+                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
                     Đang tải danh sách người dùng...
                   </td>
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-slate-400">
+                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
                     Không tìm thấy người dùng nào phù hợp
                   </td>
                 </tr>
@@ -260,6 +264,17 @@ export default function UserManager() {
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700">
                           Người dùng
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {user.subscription_plan === 'pro' ? (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                          Logi Pro
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                          Miễn phí
                         </span>
                       )}
                     </td>
@@ -369,6 +384,20 @@ export default function UserManager() {
                 >
                   <option value="user">Người dùng thông thường (User)</option>
                   <option value="admin">Quản trị viên hệ thống (Admin)</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="userSubscriptionSelect" className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Gói cước (Subscription)</label>
+                <select
+                  id="userSubscriptionSelect"
+                  name="subscription_plan"
+                  value={formData.subscription_plan}
+                  onChange={(e) => setFormData({ ...formData, subscription_plan: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 text-sm font-medium"
+                >
+                  <option value="free">Gói Miễn phí (Free)</option>
+                  <option value="pro">Gói Cao cấp (Pro)</option>
                 </select>
               </div>
 

@@ -87,11 +87,11 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
                     }`}
                 >
                   <div>
-                    <div className="flex justify-between items-center mb-2">
+                    <div className="flex justify-between items-start mb-2.5">
                       <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${isAmended
-                            ? 'text-amber-800 bg-amber-100/70 border border-amber-200'
-                            : 'text-emerald-800 bg-emerald-100/70 border border-emerald-200'
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider shadow-sm ${isAmended
+                            ? 'text-amber-800 bg-amber-100 border border-amber-200'
+                            : 'text-emerald-800 bg-emerald-100 border border-emerald-200'
                           }`}
                       >
                         {cite.statusLabel || (isAmended ? 'SỬA ĐỔI/BỔ SUNG' : 'ĐANG CÓ HIỆU LỰC')}
@@ -99,8 +99,8 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
 
                       {/* SHA-256 Integrity Badge */}
                       <span
-                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200"
-                        title="Văn bản đã được xác thực tính toàn vẹn SHA-256"
+                        className="inline-flex items-center gap-1 text-[9px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200"
+                        title="Đã xác thực"
                       >
                         <ShieldCheck className="w-3 h-3 text-emerald-600" />
                         <span>SHA-256</span>
@@ -109,41 +109,44 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
 
                     <h4
                       onClick={() => setSelectedCitationModal(cite)}
-                      className="font-bold text-sm text-slate-900 leading-snug mb-1.5 hover:text-blue-600 cursor-pointer transition-colors"
+                      className="font-bold text-[13px] text-slate-900 leading-snug mb-2 hover:text-blue-600 cursor-pointer transition-colors"
                     >
-                      {highlightLegalTerms(cite.title)}
+                      {highlightLegalTerms(cite.title.replace(/\.pdf$/i, '').replace(/_/g, ' '))}
                     </h4>
 
                     <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed mb-3">
                       {highlightLegalTerms(cite.summary)}
                     </p>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                    <div className="flex items-center justify-between pt-2.5 mt-3 border-t border-slate-100/80 text-xs">
                       <button
                         onClick={() => setSelectedCitationModal(cite)}
-                        className="font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                        className="font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1.5 cursor-pointer bg-blue-50 px-2.5 py-1.5 rounded-lg hover:bg-blue-100 transition-colors border border-blue-100"
                       >
-                        Xem chi tiết
-                        <ExternalLink className="w-3 h-3" />
+                        <FileText className="w-3.5 h-3.5" />
+                        Trích đoạn
                       </button>
 
-                      <button
-                        onClick={() => handleCopy(cite.id, `${cite.code}: ${cite.title}\n${cite.summary}`)}
-                        className="text-slate-500 hover:text-slate-900 flex items-center gap-1 cursor-pointer px-2 py-1 rounded-md hover:bg-slate-100"
-                        title="Sao chép trích dẫn"
-                      >
-                        {copiedId === cite.id ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            <span className="text-emerald-700 font-medium text-[11px]">Đã chép</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span className="text-[11px]">Chép</span>
-                          </>
+                      <div className="flex items-center gap-1">
+                        {cite.pdfUrl && cite.pdfUrl !== '#' && (
+                          <a
+                            href={cite.pdfUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-slate-500 hover:text-emerald-700 flex items-center justify-center cursor-pointer w-7 h-7 rounded-md hover:bg-emerald-50 transition-colors"
+                            title="Mở PDF gốc"
+                          >
+                            <Download className="w-4 h-4" />
+                          </a>
                         )}
-                      </button>
+                        <button
+                          onClick={() => handleCopy(cite.id, `${cite.code}: ${cite.title}\n${cite.summary}`)}
+                          className="text-slate-500 hover:text-blue-700 flex items-center justify-center cursor-pointer w-7 h-7 rounded-md hover:bg-blue-50 transition-colors"
+                          title="Sao chép"
+                        >
+                          {copiedId === cite.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

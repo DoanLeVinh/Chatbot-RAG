@@ -121,3 +121,126 @@
 .animate-fadeIn {
   animation: fadeIn 0.3s ease-out;
 }
+
+/* Custom Markdown Rendering Styles */
+.markdown-table-wrapper {
+  @apply w-full overflow-x-auto rounded-xl border border-slate-200 shadow-sm my-3;
+}
+.markdown-table {
+  @apply w-full text-sm text-left text-slate-700 bg-white;
+}
+.markdown-table th {
+  @apply bg-slate-50 px-4 py-3 font-bold text-slate-800 border-b border-slate-200 text-xs uppercase tracking-wider;
+}
+.markdown-table td {
+  @apply px-4 py-2.5 border-b border-slate-100;
+}
+.markdown-table tr:last-child td {
+  @apply border-b-0;
+}
+.markdown-table tr:nth-child(even) {
+  @apply bg-slate-50/50;
+}
+.markdown-table tr:hover {
+  @apply bg-blue-50/30 transition-colors;
+}
+
+/* Legal Callout */
+.legal-callout {
+  @apply border-l-4 border-amber-400 bg-amber-50/80 text-amber-900 p-3 rounded-r-lg my-2 text-sm leading-relaxed flex items-start gap-2 shadow-sm;
+}
+.legal-callout::before {
+  content: '⚠️';
+  @apply text-base shrink-0 mt-0.5;
+}
+.info-callout {
+  @apply border-l-4 border-blue-400 bg-blue-50/80 text-blue-900 p-3 rounded-r-lg my-2 text-sm leading-relaxed flex items-start gap-2 shadow-sm;
+}
+.info-callout::before {
+  content: '💡';
+  @apply text-base shrink-0 mt-0.5;
+}
+
+/* Tooltip */
+.tooltip-group {
+  @apply relative inline-block cursor-help;
+}
+.tooltip-group .tooltip-content {
+  @apply invisible opacity-0 absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2.5 bg-slate-800 text-white text-xs leading-snug rounded-lg shadow-xl z-50 transition-all duration-200 pointer-events-none;
+}
+.tooltip-group:hover .tooltip-content {
+  @apply visible opacity-100;
+}
+.tooltip-group .tooltip-content::after {
+  content: '';
+  @apply absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-800;
+}
+
+/* Skeleton Loading */
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+.skeleton-pulse {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(to right, #f1f5f9 4%, #e2e8f0 25%, #f1f5f9 36%);
+  background-size: 1000px 100%;
+}
+
+/* ---------------------------------
+   LANDING PAGE ANIMATIONS
+----------------------------------- */
+
+@keyframes text-gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animated-gradient-text {
+  background: linear-gradient(-45deg, #2563eb, #6366f1, #3b82f6, #4f46e5);
+  background-size: 300%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-gradient 4s ease infinite;
+}
+
+@keyframes btn-shimmer-loop {
+  0% { transform: translateX(-100%); }
+  20% { transform: translateX(100%); }
+  100% { transform: translateX(100%); }
+}
+
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: translateX(-100%);
+  animation: btn-shimmer-loop 3s infinite;
+}
+
+/* Background animated grid */
+.animated-grid-bg {
+  background-size: 40px 40px;
+  background-image: linear-gradient(to right, rgba(99, 102, 241, 0.05) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
+  animation: bg-pan 20s linear infinite;
+}
+
+@keyframes bg-pan {
+  0% { background-position: 0px 0px; }
+  100% { background-position: 40px 40px; }
+}
