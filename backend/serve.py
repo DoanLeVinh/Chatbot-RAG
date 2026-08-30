@@ -17,15 +17,8 @@ from pathlib import Path
 import sys
 import os
 import shutil
+import asyncio
 
-# Trên Windows, uvicorn dùng ProactorEventLoop mặc định — event loop này có lỗi đã biết
-# (WinError 64: "The specified network name is no longer available") khi 1 kết nối HTTP
-# bị đóng đột ngột (trình duyệt hủy request, proxy của frontend đóng socket...). Lỗi này
-# không làm sập server hay ảnh hưởng các request khác, nhưng in traceback gây nhiễu log.
-# Chuyển sang SelectorEventLoop để tránh lỗi này hoàn toàn trên Windows.
-if sys.platform == 'win32':
-    import asyncio
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 import json
 import re
 import uuid
@@ -36,6 +29,10 @@ from dotenv import load_dotenv
 
 # Set working directory to project root to ensure all Path.cwd() and relative paths work
 os.chdir(Path(__file__).resolve().parent.parent)
+
+# Enable local offline loading for cached HuggingFace models for instant startup
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 # Load .env file
 load_dotenv()
@@ -49,7 +46,9 @@ except Exception:
 # Add backend directory to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import db
-from retriever_local import LocalRetriever
+from rag.pipeline import RAGPipeline
+from rag.agent import AgentDispatcher
+from rag.cache import SemanticCache
 
 app = FastAPI(title='LogiChat — Trợ lý Pháp lý Hải quan & XNK AI (SQLite & PDR Backend)')
 
@@ -77,7 +76,10 @@ PAPERS_DIR = ROOT_DIR / 'papers'
 if PAPERS_DIR.exists():
     app.mount('/api/papers', StaticFiles(directory=str(PAPERS_DIR)), name='papers')
 
-retriever: Optional[LocalRetriever] = None
+# Advanced RAG Globals
+agent_dispatcher: Optional[AgentDispatcher] = None
+semantic_cache: Optional[SemanticCache] = None
+_retriever = None  # LocalRetriever singleton
 
 
 # ─── Security & Authentication Dependencies ────────────────────────
@@ -112,6 +114,22 @@ def require_admin_user(authorization: Optional[str] = Header(None)) -> Dict[str,
 
 
 # ─── Helper functions ───────────────────────────────────────────────
+
+def resolve_effective_user_id(provided_id: Optional[str], current_user: Optional[dict]) -> Optional[str]:
+    """
+    Prevents IDOR: If a user is not authenticated, they cannot use the user ID of a registered user.
+    """
+    if current_user:
+        return current_user["id"]
+        
+    if provided_id:
+        # Prevent anonymous users from hijacking registered accounts (accounts with real passwords)
+        existing_user = db.get_user_by_id(provided_id)
+        if existing_user and existing_user.get("role") != "guest" and existing_user.get("password_hash") != "dummy":
+            raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để thao tác trên tài khoản này.")
+        return provided_id
+        
+    return None
 
 def _extract_hs_code(text: str) -> Optional[str]:
     """Extract HS code from text (e.g. 8542.31, 8427.10.00)."""
@@ -327,17 +345,49 @@ class PdfExportIn(BaseModel):
 
 # ─── Startup event ──────────────────────────────────────────────────
 
-def get_retriever() -> LocalRetriever:
-    """Ensure LocalRetriever is initialized (lazy initialization for test suites and production)."""
-    global retriever
-    if retriever is None:
+def get_agent_dispatcher() -> AgentDispatcher:
+    global agent_dispatcher
+    if agent_dispatcher is None:
         db.init_db()
-        retriever = LocalRetriever()
-    return retriever
+        pipeline = RAGPipeline()
+        agent_dispatcher = AgentDispatcher(pipeline)
+    return agent_dispatcher
+
+def get_semantic_cache() -> SemanticCache:
+    global semantic_cache
+    if semantic_cache is None:
+        semantic_cache = SemanticCache()
+    return semantic_cache
+
+def get_retriever():
+    """Return the singleton retriever instance."""
+    global _retriever
+    if _retriever is None:
+        agent = get_agent_dispatcher()
+        if agent and hasattr(agent, 'rag_pipeline') and agent.rag_pipeline:
+            _retriever = agent.rag_pipeline.retriever
+        elif agent and hasattr(agent, 'pipeline') and agent.pipeline:
+            _retriever = agent.pipeline.retriever
+        else:
+            from rag.retriever import AdvancedRetriever
+            _retriever = AdvancedRetriever()
+    return _retriever
 
 @app.on_event('startup')
 async def startup_event():
-    get_retriever()
+    db.init_db()
+    
+    # Warm up models and retriever asynchronously in background without blocking port binding
+    async def _async_warmup():
+        try:
+            import asyncio
+            await asyncio.to_thread(get_agent_dispatcher)
+            await asyncio.to_thread(get_semantic_cache)
+        except Exception as e:
+            print(f"[WARNING] Background warmup error: {e}")
+            
+    import asyncio
+    asyncio.create_task(_async_warmup())
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -353,8 +403,9 @@ async def api_query(q: QueryIn):
 
 @app.post('/api/chat')
 async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_current_user_optional)):
-    r = get_retriever()
-    effective_user_id = user_payload["id"] if user_payload else req.userId
+    agent = get_agent_dispatcher()
+    cache = get_semantic_cache()
+    effective_user_id = resolve_effective_user_id(req.userId, user_payload)
 
     if effective_user_id:
         db_user = db.get_user_by_id(effective_user_id)
@@ -368,14 +419,30 @@ async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_curre
     # Retrieve last 4 messages (2 pairs) for sliding window memory
     chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
 
-    # "Chat theo phạm vi tài liệu": nếu phiên này đã có tài liệu người dùng tải lên,
-    # CHỈ trả lời dựa trên nội dung (các) tài liệu đó — không dùng kho luật chung.
-    if req.sessionId and db.session_has_documents(req.sessionId):
-        scoped_chunks = db.get_session_document_chunks(req.sessionId)
-        answer, sources, provider = r.synthesize_scoped(req.prompt, scoped_chunks, top_k=2, max_sentences=5)
+    # Check Semantic Cache first!
+    cached_response = cache.get(req.prompt) if req.sessionId else None
+    
+    if cached_response:
+        answer = cached_response["answer"]
+        sources = cached_response["sources"]
+        provider = "Redis Cache Hit"
     else:
-        # Giảm top_k xuống 2 để tối ưu tốc độ phản hồi
-        answer, sources, provider = r.synthesize(req.prompt, chat_history=chat_history, top_k=2, max_sentences=5, ai_model=req.aiModel)
+        # "Chat theo phạm vi tài liệu": nếu phiên này đã có tài liệu người dùng tải lên,
+        # CHỈ trả lời dựa trên nội dung (các) tài liệu đó — không dùng kho luật chung.
+        if req.sessionId and db.session_has_documents(req.sessionId):
+            scoped_chunks = db.get_session_document_chunks(req.sessionId)
+            answer, sources, provider = agent.rag_pipeline.generator.synthesize(
+                req.prompt, scoped_chunks, ai_model=req.aiModel, chat_history=chat_history
+            )
+        else:
+            # Let the Agent Dispatcher handle Tool Calling or RAG Fallback
+            answer, sources, provider = agent.process_request(
+                query=req.prompt, ai_model=req.aiModel, chat_history=chat_history
+            )
+            
+        # Store to cache
+        if req.sessionId:
+            cache.set(req.prompt, {"answer": answer, "sources": sources})
 
     # Extract structured data
     hs_code = _extract_hs_code(req.prompt + ' ' + answer)
@@ -394,7 +461,7 @@ async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_curre
         try:
             timestamp = datetime.now().strftime('%H:%M')
             # Ưu tiên user_id từ JWT token (đã đăng nhập); fallback sang userId gửi kèm request
-            effective_user_id = user_payload["id"] if user_payload else req.userId
+            effective_user_id = resolve_effective_user_id(req.userId, user_payload)
             # Add User Message to SQLite DB
             db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
             # Add AI Message to SQLite DB
@@ -423,8 +490,9 @@ async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_curre
 
 @app.post('/api/chat/stream')
 async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(get_current_user_optional)):
-    r = get_retriever()
-    effective_user_id = user_payload["id"] if user_payload else req.userId
+    agent = get_agent_dispatcher()
+    cache = get_semantic_cache()
+    effective_user_id = resolve_effective_user_id(req.userId, user_payload)
 
     if effective_user_id:
         db_user = db.get_user_by_id(effective_user_id)
@@ -439,91 +507,167 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
         full_answer = ""
         provider = "local"
         sources = []
-        # 1. Bắt đầu tìm kiếm
-        yield f"data: {json.dumps({'stage': '🔍 Đang tìm kiếm văn bản pháp luật liên quan...'}, ensure_ascii=False)}\n\n"
-        await asyncio.sleep(0)
+        try:
+            import quiz_service
+            if quiz_service.is_quiz_intent(req.prompt):
+                yield f"data: {json.dumps({'stage': '🔍 Đang tổng hợp kiến thức và trích xuất căn cứ pháp lý...'}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0)
 
-        # Lấy lịch sử
-        chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
+                scoped_chunks = None
+                if req.sessionId and db.session_has_documents(req.sessionId):
+                    scoped_chunks = db.get_session_document_chunks(req.sessionId)
 
-        # 2. Phân tích & Rerank (chạy trong thread để không block event loop)
-        yield f"data: {json.dumps({'stage': '⚖️ Đang phân tích và đánh giá mức độ phù hợp...'}, ensure_ascii=False)}\n\n"
-        await asyncio.sleep(0)
-        
-        loop = asyncio.get_event_loop()
-        scoped_chunks = db.get_session_document_chunks(req.sessionId) if req.sessionId else []
-        
-        if scoped_chunks and ("Văn bản trích xuất từ ảnh" in req.prompt or True): # For simplicity, if there are scoped chunks, prioritize them
-            parents = [{'source': c.get('source', 'Tài liệu đã tải lên'), 'start_index': c.get('chunk_index', 0), 'chapter': None, 'text': c['text'], 'best_child_score': 1.0} for c in scoped_chunks]
-            children = []
-        else:
-            parents, children = await loop.run_in_executor(None, r.retrieve_parents, req.prompt, 2)
+                yield f"data: {json.dumps({'stage': '📝 Đang biên soạn bộ câu hỏi trắc nghiệm...'}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0)
 
-        # 3. Tổng hợp LLM
-        yield f"data: {json.dumps({'stage': '✍️ Đang tổng hợp câu trả lời...'}, ensure_ascii=False)}\n\n"
-        await asyncio.sleep(0)
-
-        from retriever_local import _refine_with_llm_router_stream
-        
-        if not parents and not children:
-            yield f"data: {json.dumps({'token': 'Tôi không tìm thấy thông tin phù hợp trong các văn bản pháp luật được cung cấp.'}, ensure_ascii=False)}\n\n"
-            full_answer = "Tôi không tìm thấy thông tin phù hợp trong các văn bản pháp luật được cung cấp."
-        else:
-            for chunk in _refine_with_llm_router_stream(req.prompt, parents, chat_history, ai_model=req.aiModel):
-                if chunk["type"] == "text":
-                    text = chunk["content"]
-                    full_answer += text
-                    
-                    if chunk.get("sources") and not sources:
-                        sources = chunk["sources"]
-                        early_citations = _build_legal_citations(sources)
-                        if early_citations:
-                            yield f"data: {json.dumps({'citations': early_citations}, ensure_ascii=False)}\n\n"
-                            await asyncio.sleep(0)
-                    
-                    payload = json.dumps({"token": text}, ensure_ascii=False)
-                    yield f"data: {payload}\n\n"
-                    await asyncio.sleep(0)
-                elif chunk["type"] == "error":
-                    yield f"data: {json.dumps({'error': chunk['content']}, ensure_ascii=False)}\n\n"
-                    return
-
-        # End of stream extraction
-        hs_code = _extract_hs_code(req.prompt + ' ' + full_answer)
-        taxes = _extract_tax_info(full_answer)
-        inspections = _extract_inspection_info(full_answer)
-        citations = _build_legal_citations(sources)
-        taxes = _attach_citation_codes_to_taxes(taxes, citations)
-
-        summary_pdf = {
-            'title': 'Tải bản tóm tắt (PDF)',
-            'downloadUrl': '/api/export/pdf',
-        } if full_answer and len(full_answer) > 50 else None
-
-        final_payload = {
-            "done": True,
-            "reply": full_answer,
-            "provider": provider,
-            "hsCode": hs_code,
-            "taxes": taxes if taxes else None,
-            "inspections": inspections,
-            "citations": citations if citations else None,
-            "summaryPdf": summary_pdf
-        }
-
-        if req.sessionId:
-            try:
-                timestamp = datetime.now().strftime('%H:%M')
-                db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
-                db.add_message(
-                    req.sessionId, 'ai', full_answer, timestamp,
-                    hs_code=hs_code, taxes=taxes, inspections=inspections,
-                    citations=citations, summary_pdf=summary_pdf, user_id=effective_user_id
+                r = get_retriever()
+                loop = asyncio.get_event_loop()
+                quiz_future = loop.run_in_executor(
+                    None,
+                    quiz_service.generate_quiz,
+                    req.prompt,
+                    req.sessionId,
+                    effective_user_id,
+                    scoped_chunks,
+                    r,
+                    req.aiModel
                 )
-            except Exception as db_err:
-                print(f"[Warning] Failed to persist stream message to SQLite: {db_err}")
 
-        yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
+                # Heartbeat keep-alive loop to prevent client read timeouts
+                while not quiz_future.done():
+                    yield f"data: {json.dumps({'stage': '📝 Đang biên soạn bộ câu hỏi trắc nghiệm...'}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(2.0)
+
+                reply_text, quiz_summary = await quiz_future
+
+                # Stream out reply_text tokens smoothly
+                words = reply_text.split(" ")
+                for i, w in enumerate(words):
+                    chunk_token = w + (" " if i < len(words) - 1 else "")
+                    yield f"data: {json.dumps({'token': chunk_token}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.01)
+
+                final_payload = {
+                    "done": True,
+                    "reply": reply_text,
+                    "provider": "AI Quiz Generator",
+                    "hsCode": None,
+                    "taxes": None,
+                    "inspections": None,
+                    "citations": None,
+                    "summaryPdf": None,
+                    "quiz": quiz_summary
+                }
+
+                if req.sessionId:
+                    try:
+                        timestamp = datetime.now().strftime('%H:%M')
+                        db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
+                        db.add_message(
+                            req.sessionId, 'ai', reply_text, timestamp,
+                            quiz=quiz_summary, user_id=effective_user_id
+                        )
+                    except Exception as db_err:
+                        print(f"[Warning] Failed to persist quiz message to SQLite: {db_err}")
+
+                yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
+                return
+
+            # 1. Bắt đầu tìm kiếm
+            yield f"data: {json.dumps({'stage': '🔍 Đang tìm kiếm văn bản pháp luật liên quan...'}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(0)
+
+            # Lấy lịch sử
+            chat_history = db.get_recent_messages_for_llm(req.sessionId, limit=4) if req.sessionId else []
+
+            # 2. Phân tích & Rerank (chạy trong thread để không block event loop)
+            yield f"data: {json.dumps({'stage': '⚖️ Đang phân tích và đánh giá mức độ phù hợp...'}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(0)
+            
+            loop = asyncio.get_event_loop()
+            r = get_retriever()
+            
+            if req.sessionId and db.session_has_documents(req.sessionId):
+                scoped_chunks = db.get_session_document_chunks(req.sessionId)
+                parents = [{'source': c.get('source', 'Tài liệu đã tải lên'), 'start_index': c.get('chunk_index', 0), 'chapter': None, 'text': c['text'], 'best_child_score': 1.0} for c in scoped_chunks]
+                children = parents
+            else:
+                if hasattr(r, 'retrieve_parents'):
+                    parents, children = await loop.run_in_executor(None, r.retrieve_parents, req.prompt, 3)
+                else:
+                    parents = await loop.run_in_executor(None, r.retrieve, req.prompt, 3)
+                    children = parents
+
+            # 3. Tổng hợp LLM
+            yield f"data: {json.dumps({'stage': '✍️ Đang tổng hợp câu trả lời...'}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(0)
+
+            from retriever_local import _refine_with_llm_router_stream
+            
+            if not parents and not children:
+                no_info_msg = "Tôi không tìm thấy thông tin phù hợp trong các văn bản pháp luật được cung cấp."
+                yield f"data: {json.dumps({'token': no_info_msg}, ensure_ascii=False)}\n\n"
+                full_answer = no_info_msg
+            else:
+                for chunk in _refine_with_llm_router_stream(req.prompt, parents, chat_history, ai_model=req.aiModel):
+                    if chunk["type"] == "text":
+                        text = chunk["content"]
+                        full_answer += text
+                        
+                        if chunk.get("sources") and not sources:
+                            sources = chunk["sources"]
+                            early_citations = _build_legal_citations(sources)
+                            if early_citations:
+                                yield f"data: {json.dumps({'citations': early_citations}, ensure_ascii=False)}\n\n"
+                                await asyncio.sleep(0)
+                        
+                        payload = json.dumps({"token": text}, ensure_ascii=False)
+                        yield f"data: {payload}\n\n"
+                        await asyncio.sleep(0)
+                    elif chunk["type"] == "error":
+                        yield f"data: {json.dumps({'error': chunk['content']}, ensure_ascii=False)}\n\n"
+                        return
+
+            # End of stream extraction
+            hs_code = _extract_hs_code(req.prompt + ' ' + full_answer)
+            taxes = _extract_tax_info(full_answer)
+            inspections = _extract_inspection_info(full_answer)
+            citations = _build_legal_citations(sources)
+            taxes = _attach_citation_codes_to_taxes(taxes, citations)
+
+            summary_pdf = {
+                'title': 'Tải bản tóm tắt (PDF)',
+                'downloadUrl': '/api/export/pdf',
+            } if full_answer and len(full_answer) > 50 else None
+
+            final_payload = {
+                "done": True,
+                "reply": full_answer,
+                "provider": provider,
+                "hsCode": hs_code,
+                "taxes": taxes if taxes else None,
+                "inspections": inspections,
+                "citations": citations if citations else None,
+                "summaryPdf": summary_pdf
+            }
+
+            if req.sessionId:
+                try:
+                    timestamp = datetime.now().strftime('%H:%M')
+                    db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
+                    db.add_message(
+                        req.sessionId, 'ai', full_answer, timestamp,
+                        hs_code=hs_code, taxes=taxes, inspections=inspections,
+                        citations=citations, summary_pdf=summary_pdf, user_id=effective_user_id
+                    )
+                except Exception as db_err:
+                    print(f"[Warning] Failed to persist stream message to SQLite: {db_err}")
+
+            yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
+        except Exception as err:
+            import traceback
+            traceback.print_exc()
+            yield f"data: {json.dumps({'error': f'Lỗi hệ thống: {str(err)}'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -583,7 +727,10 @@ async def get_sessions(
     limit: int = 50,
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    effective_user_id = current_user["id"] if current_user else userId
+    effective_user_id = resolve_effective_user_id(userId, current_user)
+    # Bug #4 fix: Anonymous users (no token, no userId) get empty sessions list
+    if not effective_user_id:
+        return JSONResponse({"sessions": [], "total": 0, "page": page, "limit": limit})
     result = db.get_user_sessions(user_id=effective_user_id, search=search, tag=tag, page=page, limit=limit)
     return JSONResponse(result)
 
@@ -593,7 +740,7 @@ async def create_session(
     req: SessionCreate,
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    effective_user_id = current_user["id"] if current_user else req.userId
+    effective_user_id = resolve_effective_user_id(req.userId, current_user)
     new_session = db.create_session(
         user_id=effective_user_id,
         title=req.title or "Hội thoại tư vấn mới",
@@ -608,7 +755,7 @@ async def get_session(
     userId: Optional[str] = None,
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    effective_user_id = current_user["id"] if current_user else userId
+    effective_user_id = resolve_effective_user_id(userId, current_user)
     session = db.get_session_detail(session_id, user_id=effective_user_id)
     if not session:
         return JSONResponse({'error': 'Không tìm thấy phiên hội thoại hoặc không có quyền truy cập.'}, status_code=404)
@@ -621,7 +768,7 @@ async def delete_session(
     userId: Optional[str] = None,
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    effective_user_id = current_user["id"] if current_user else userId
+    effective_user_id = resolve_effective_user_id(userId, current_user)
     success = db.delete_session(session_id, user_id=effective_user_id)
     if not success:
         return JSONResponse({'error': 'Không tìm thấy phiên hội thoại hoặc không có quyền truy cập.'}, status_code=404)
@@ -791,13 +938,14 @@ def _process_session_document_for_rag(sessionId: str, filename: str, file_path: 
             print(f"[Upload] Không trích xuất được nội dung văn bản từ {filename}, bỏ qua scoped-RAG.")
             return False
 
-        r = get_retriever()
-        embeddings = r.embed_texts(chunks)
-        chunks_with_emb = [{'text': c, 'embedding': e} for c, e in zip(chunks, embeddings)]
+        # Fast chunk persistence for instant Scoped Document RAG
+        chunks_with_emb = [{'text': c, 'embedding': []} for c in chunks]
         db.save_session_document_chunks(sessionId, filename, chunks_with_emb)
         print(f"[Upload] Đã xử lý '{filename}' cho scoped-RAG: {len(chunks)} chunks.")
         return True
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"[Upload] Lỗi xử lý scoped-RAG cho '{filename}': {e}")
         return False
 
@@ -832,7 +980,7 @@ async def upload_file(
                 'image' if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp'] else 'pdf'
 
     file_url = f'/uploads/{unique_name}'
-    effective_user_id = current_user["id"] if current_user else userId
+    effective_user_id = resolve_effective_user_id(userId, current_user)
 
     if file_type == 'image' and effective_user_id:
         db_user = db.get_user_by_id(effective_user_id)
@@ -928,8 +1076,13 @@ async def upload_file(
 # ═══════════════════════════════════════════════════════════════════
 
 @app.get('/api/user/usage')
-async def get_user_usage(userId: str):
-    user_id = userId
+async def get_user_usage(
+    userId: Optional[str] = None,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    user_id = resolve_effective_user_id(userId, current_user)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để xem thông tin gói cước.")
     db_user = db.get_user_by_id(user_id)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -979,7 +1132,7 @@ async def get_settings(
     userId: Optional[str] = 'default_user',
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    effective_user_id = current_user["id"] if current_user else (userId or 'default_user')
+    effective_user_id = resolve_effective_user_id(userId or 'default_user', current_user)
     settings = db.get_user_settings(effective_user_id)
     return JSONResponse(settings)
 
@@ -989,7 +1142,7 @@ async def update_settings(
     req: SettingsIn,
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    effective_user_id = current_user["id"] if current_user else (req.userId or 'default_user')
+    effective_user_id = resolve_effective_user_id(req.userId or 'default_user', current_user)
     updated = db.update_user_settings(
         effective_user_id,
         auto_cite=req.autoCite if req.autoCite is not None else True,
@@ -1368,25 +1521,25 @@ async def admin_search_chunks(
     q: str = Query(...),
     admin: dict = Depends(require_admin_user)
 ):
-    global retriever
     try:
-        if not retriever:
+        r = get_retriever()
+        if not r:
             raise HTTPException(status_code=500, detail="Retriever not initialized.")
         
         # Use retriever to get chunks
-        results = retriever.retrieve(q, top_k=20)
+        results = r.retrieve(q, top_k=20)
         chunks = []
-        for r in results:
-            pid = r.get("parent_id")
-            if pid and pid in retriever.parent_chunks:
-                p = retriever.parent_chunks[pid]
+        for res in results:
+            pid = res.get("parent_id")
+            if pid and pid in r.parent_chunks:
+                p = r.parent_chunks[pid]
                 chunks.append({
                     "parent_id": pid,
                     "source": p.get("source", ""),
                     "chapter": p.get("chapter", ""),
                     "article_ids": p.get("article_ids", []),
                     "text": p.get("text", ""),
-                    "score": r.get("score", 0)
+                    "score": res.get("score", 0)
                 })
         return {"success": True, "chunks": chunks}
     except Exception as e:
@@ -1543,30 +1696,50 @@ async def admin_update_chunk(
 
 
 def process_document_background(filename: str, file_path: str, base_dir: Path):
-    import subprocess
     try:
-        print(f"Background: Running pipeline for new file: {filename}")
-        chatbot_script = base_dir / "Chatbot.py"
-        seed_script = base_dir / "seed_db_from_json.py"
+        print(f"[Admin Pipeline] Processing uploaded file: {filename}...")
+        import ingest_pipeline
+        ingest_pipeline.ingest_file(file_path, rebuild_index=True)
         
-        # 1. Chunking
-        subprocess.run([sys.executable, str(chatbot_script), "--file", str(file_path)], cwd=str(base_dir), check=True)
-        # 2. Seed DB
-        subprocess.run([sys.executable, str(seed_script)], cwd=str(base_dir), check=True)
-        
-        # 3. Build FAISS index in-memory
-        global retriever
-        if retriever:
-            retriever.rebuild_faiss_index()
-        else:
-            get_retriever()
-            
-        # 4. Update status
-        db.update_document_status(filename, 'ready')
-        print(f"Background: Completed pipeline for {filename}")
+        # Refresh global retriever singleton
+        global _retriever
+        _retriever = None
+        get_retriever()
+        print(f"[Admin Pipeline] Completed processing for {filename} successfully.")
     except Exception as e:
-        print(f"Background error processing {filename}:", e)
+        print(f"[Admin Pipeline Error] Failed processing {filename}:", e)
         db.update_document_status(filename, 'error')
+
+
+def process_sync_all_background():
+    try:
+        print("[Admin Pipeline] Running batch sync for all papers...")
+        import ingest_pipeline
+        res = ingest_pipeline.ingest_all_papers(force=False)
+        
+        # Refresh global retriever singleton
+        global _retriever
+        _retriever = None
+        get_retriever()
+        print(f"[Admin Pipeline] Batch sync completed! Processed: {res.get('processed_files')}, Total Vectors: {res.get('total_vectors')}")
+    except Exception as e:
+        print("[Admin Pipeline Error] Batch sync failed:", e)
+
+
+@app.post('/api/admin/docs/sync-all')
+def admin_sync_all_documents(
+    background_tasks: BackgroundTasks,
+    admin: dict = Depends(require_admin_user)
+):
+    try:
+        background_tasks.add_task(process_sync_all_background)
+        return {
+            "success": True, 
+            "message": "Đang bắt đầu quét và đồng bộ tự động toàn bộ tài liệu trong thư mục papers/. Quá trình diễn ra ngầm."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post('/api/admin/docs/upload')
 def admin_upload_pdf(
@@ -1574,20 +1747,13 @@ def admin_upload_pdf(
     file: UploadFile = FastAPIFile(...),
     admin: dict = Depends(require_admin_user)
 ):
-    import subprocess
     try:
         ext = Path(file.filename).suffix.lower()
         if ext != '.pdf':
             raise HTTPException(status_code=400, detail="Chỉ hỗ trợ nạp tài liệu định dạng PDF.")
 
-        # Ensure we use the backend folder as base
         base_dir = Path(__file__).resolve().parent
-        
-        # Save to papers/
         papers_dir = base_dir.parent / 'papers'
-        if not papers_dir.exists():
-            papers_dir = base_dir / 'papers'
-            
         papers_dir.mkdir(parents=True, exist_ok=True)
         file_path = papers_dir / file.filename
         
@@ -1600,17 +1766,56 @@ def admin_upload_pdf(
         # Add background task
         background_tasks.add_task(process_document_background, file.filename, str(file_path), base_dir)
             
-        return {"success": True, "message": "Tải lên thành công, hệ thống đang xử lý phân tích AI ngầm."}
+        return {
+            "success": True, 
+            "message": f"Đã tải lên '{file.filename}' thành công. Hệ thống đang tiến hành băm nhỏ và cập nhật AI ngầm."
+        }
     except Exception as e:
         print("Upload error:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
-        source_name = f"papers/{file.filename}"
-        return {"success": True, "message": "Đã thêm và xử lý tài liệu thành công.", "source": source_name}
-    except subprocess.CalledProcessError as e:
-        return JSONResponse(status_code=500, content={"success": False, "error": f"Pipeline processing failed: {e}"})
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+# ═══════════════════════════════════════════════════════════════════
+# QUIZ & ASSESSMENT REST API
+# ═══════════════════════════════════════════════════════════════════
+
+class QuizSubmitIn(BaseModel):
+    answers: Dict[str, str]
+    timeSpentSeconds: Optional[int] = 0
+    userId: Optional[str] = None
+
+@app.get('/api/quiz/history')
+async def api_get_quiz_history(
+    userId: Optional[str] = None,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    user_id = resolve_effective_user_id(userId, current_user)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để xem lịch sử trắc nghiệm.")
+    history = db.get_user_quiz_history(user_id)
+    return JSONResponse({"history": history})
+
+@app.get('/api/quiz/{quiz_id}')
+async def api_get_quiz_detail(
+    quiz_id: str,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    quiz = db.get_quiz_by_id(quiz_id, include_answers=False)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Bài trắc nghiệm không tồn tại hoặc đã bị xóa.")
+    return JSONResponse(quiz)
+
+@app.post('/api/quiz/{quiz_id}/submit')
+async def api_submit_quiz_answers(
+    quiz_id: str,
+    req: QuizSubmitIn,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    effective_user_id = resolve_effective_user_id(req.userId, current_user)
+    result = db.submit_quiz_answers(quiz_id, effective_user_id, req.answers, req.timeSpentSeconds or 0)
+    if not result:
+        raise HTTPException(status_code=404, detail="Bài trắc nghiệm không tồn tại hoặc đã bị xóa.")
+    return JSONResponse(result)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1646,4 +1851,4 @@ async def spa_fallback(request: Request, path: str):
 
 
 if __name__ == '__main__':
-    uvicorn.run('serve:app', host='127.0.0.1', port=8000, reload=False)
+    uvicorn.run(app, host='127.0.0.1', port=8000)

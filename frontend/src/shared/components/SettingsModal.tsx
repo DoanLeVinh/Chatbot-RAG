@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getAuthHeaders } from '../utils';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -21,7 +22,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Load settings from backend when modal opens
   useEffect(() => {
     if (isOpen) {
-      fetch('/api/settings')
+      fetch('/api/settings', { headers: getAuthHeaders() })
         .then((res) => res.json())
         .then((data) => {
           if (data.autoCite !== undefined) setAutoCite(data.autoCite);
@@ -41,7 +42,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({ autoCite, lawDatabase, fontSize }),
       });
 

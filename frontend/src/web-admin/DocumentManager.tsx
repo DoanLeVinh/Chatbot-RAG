@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Edit2, FileText, Save, X, UploadCloud, Loader2, Plus, ChevronLeft, ChevronRight, ChevronDown, Trash2, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Search, Edit2, FileText, Save, X, UploadCloud, Loader2, Plus, ChevronLeft, ChevronRight, ChevronDown, Trash2, ShieldCheck, AlertCircle, RefreshCw } from 'lucide-react';
 
 const TreeNode = ({ node, openEdit, handleDeleteChunk }: any) => {
   const [expanded, setExpanded] = React.useState(false);
@@ -86,6 +86,7 @@ export default function DocumentManager() {
   // Loading States
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   // Edit/Add State
   const [editingChunk, setEditingChunk] = useState<any>(null);
@@ -226,6 +227,27 @@ export default function DocumentManager() {
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSyncAll = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/admin/docs/sync-all', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('success', data.message || 'Đang bắt đầu quét & đồng bộ tất cả PDF...');
+        fetchDocs();
+      } else {
+        showToast('error', 'Lỗi: ' + (data.detail || data.error));
+      }
+    } catch (err: any) {
+      showToast('error', 'Lỗi kết nối khi gửi lệnh đồng bộ.');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -372,7 +394,16 @@ export default function DocumentManager() {
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Quản lý Tài liệu & Chunks</h1>
             <p className="text-slate-500 text-sm mt-1">Tìm kiếm tương đồng, chỉnh sửa ngữ nghĩa pháp luật</p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleSyncAll}
+              disabled={isSyncing}
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-medium hover:from-blue-700 hover:to-indigo-700 transition-all flex items-center gap-2 shadow-sm disabled:opacity-70"
+              title="Tự động băm nhỏ và cập nhật toàn bộ PDF chưa xử lý trong thư mục papers/"
+            >
+              {isSyncing ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
+              {isSyncing ? 'Đang đồng bộ AI...' : '⚡ Đồng bộ tất cả PDF'}
+            </button>
             <input
               type="file"
               ref={fileInputRef}

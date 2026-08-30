@@ -20,10 +20,10 @@ export const LogiChatLogo: React.FC<LogiChatLogoProps> = ({
   }[size];
 
   const anchorSize = {
-    sm: 22,
-    md: 26,
-    lg: 36,
-    xl: 64,
+    sm: 20,
+    md: 24,
+    lg: 32,
+    xl: 56,
   }[size];
 
   const textSizeClass = {
@@ -34,19 +34,19 @@ export const LogiChatLogo: React.FC<LogiChatLogoProps> = ({
   }[size];
 
   return (
-    <div className={`flex items-center gap-3.5 select-none ${className}`}>
-      {/* Prominent Gradient Logo Wrapper */}
-      <div className={`relative flex items-center justify-center bg-gradient-to-tr from-blue-700 to-blue-500 shadow-[0_8px_20px_rgba(37,99,235,0.3)] overflow-hidden flex-shrink-0 transition-transform hover:scale-105 duration-300 ${iconSizeClass}`}>
-        <Anchor size={anchorSize} weight="bold" className="text-white drop-shadow-md z-10" />
+    <div className={`flex items-center gap-3 select-none ${className}`}>
+      {/* Premium Glass-like Logo Wrapper */}
+      <div className={`relative flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 shadow-[0_4px_12px_rgba(79,70,229,0.25)] overflow-hidden flex-shrink-0 transition-transform hover:scale-105 hover:shadow-[0_8px_20px_rgba(79,70,229,0.35)] duration-300 ${iconSizeClass}`}>
+        <Anchor size={anchorSize} weight="bold" className="text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)] z-10" />
         
         {/* Subtle glass reflection layer */}
-        <div className="absolute inset-0 border border-white/20 rounded-inherit pointer-events-none" />
-        <div className="absolute -top-4 -right-4 w-12 h-12 bg-white/20 blur-xl rounded-full" />
+        <div className="absolute inset-0 border-[0.5px] border-white/30 rounded-inherit pointer-events-none" />
+        <div className="absolute -top-1/2 -right-1/2 w-[150%] h-[150%] bg-gradient-to-b from-white/20 to-transparent rotate-45 transform pointer-events-none" />
       </div>
 
       {!iconOnly && (
         <span className={`font-semibold tracking-tight text-slate-800 ${textSizeClass}`}>
-          Logi<span className="text-blue-600 font-bold">Chat</span>
+          Logi<span className="text-blue-600 font-extrabold">Chat</span>
         </span>
       )}
     </div>

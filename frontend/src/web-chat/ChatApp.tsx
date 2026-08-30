@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { getAuthHeaders } from '../shared/utils';
 import ProBackground from './ProEffects';
 import { ActiveScreen, ChatSession, ChatMessage, LegalCitation, UserUsage } from '../shared/types';
 import { LandingPage } from './LandingPage';
@@ -14,6 +15,7 @@ import { LiquidLoader } from '../shared/components/LiquidLoader';
 import { WaterRippleMouse } from '../shared/components/WaterRippleMouse';
 import { UpgradeModal } from './UpgradeModal';
 import { PricingPage } from '../pages/PricingPage';
+import { QuizRunnerModal } from '../features/quiz/QuizRunnerModal';
 
 const createDefaultBlankSession = (): ChatSession => ({
   id: `session-${Date.now()}`,
@@ -68,6 +70,8 @@ export default function App() {
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<'messages' | 'images' | 'manual'>('manual');
   const [isPricingPageOpen, setIsPricingPageOpen] = useState(false);
+  const [activeQuizId, setActiveQuizId] = useState<string | null>(null);
+  const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
 
   // Modals state
   const [authModal, setAuthModal] = useState<{
@@ -111,7 +115,9 @@ export default function App() {
     if (!currentUser) return;
     try {
       const userIdParam = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
-      const res = await fetch(`/api/user/usage${userIdParam}`);
+      const res = await fetch(`/api/user/usage${userIdParam}`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         setUserUsage(data);
@@ -123,8 +129,12 @@ export default function App() {
 
   const loadSessionsFromBackend = useCallback(async () => {
     try {
-      const userIdParam = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
-      const res = await fetch(`/api/sessions${userIdParam}`);
+      // Bug #3 fix: Only use userId in URL if no token (anonymous mode)
+      const token = (() => { try { return localStorage.getItem('logichat_token'); } catch { return null; } })();
+      const userIdParam = (!token && currentUser?.id) ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
+      const res = await fetch(`/api/sessions${userIdParam}`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.sessions && data.sessions.length > 0) {
@@ -176,7 +186,10 @@ export default function App() {
     try {
       const res = await fetch('/api/sessions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeaders() 
+        },
         body: JSON.stringify({
           title: newSession.title,
           categoryTag: newSession.categoryTag,
@@ -208,9 +221,17 @@ export default function App() {
       minute: '2-digit',
     });
 
-    // Optimistic UI: Show user message IMMEDIATELY (including image preview)
+    // Optimistic UI: Show user message IMMEDIATELY (including image preview & file badge)
     let optimisticText = text.trim() || (file ? `[Đính kèm: ${file.name}]` : '');
     const imagePreviewUrl = file && file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+    
+    const optimisticAttachment = file ? {
+      id: `att-${Date.now()}`,
+      name: file.name,
+      size: file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+      type: file.type.startsWith('image/') ? 'image' as const : file.name.endsWith('.pdf') ? 'pdf' as const : file.name.endsWith('.xlsx') || file.name.endsWith('.xls') ? 'excel' as const : 'doc' as const,
+      url: imagePreviewUrl || '',
+    } : undefined;
 
     const userMsg: ChatMessage = {
       id: userMsgId,
@@ -218,6 +239,7 @@ export default function App() {
       text: optimisticText,
       timestamp: timestampStr,
       imageUrl: imagePreviewUrl,
+      attachment: optimisticAttachment,
     };
 
     // Immediately update UI with user message
@@ -279,6 +301,7 @@ export default function App() {
         }
         const uploadRes = await fetch('/api/upload', {
           method: 'POST',
+          headers: getAuthHeaders(),
           body: formData,
         });
 
@@ -316,6 +339,7 @@ export default function App() {
           } else if (!text.trim()) {
             finalUserMessageText = `[Đính kèm: ${uploadedFile.name}]`;
           }
+          fetchUserUsage();
         }
       } catch {
         console.log('File upload failed, continuing without attachment');
@@ -348,7 +372,17 @@ export default function App() {
             const msgs = [...s.messages];
             const userIdx = msgs.findIndex((m) => m.id === userMsgId);
             if (userIdx !== -1) {
-              msgs[userIdx] = { ...msgs[userIdx], text: finalUserMessageText };
+              msgs[userIdx] = { 
+                ...msgs[userIdx], 
+                text: finalUserMessageText,
+                attachment: uploadedFile ? {
+                  id: uploadedFile.id,
+                  name: uploadedFile.name,
+                  size: uploadedFile.size,
+                  type: uploadedFile.type,
+                  url: uploadedFile.url
+                } : msgs[userIdx].attachment
+              };
             }
             // Remove the temporary AI placeholder (will be recreated below)
             const aiPlaceholderIdx = msgs.findIndex((m) => m.id === aiMsgId);
@@ -395,7 +429,10 @@ export default function App() {
       // Call backend FastAPI (SQLite) for RAG + AI Streaming
       const res = await fetch('/api/chat/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeaders() 
+        },
         body: JSON.stringify({
           prompt: finalUserMessageText,
           sessionId: activeSession.id,
@@ -519,6 +556,7 @@ export default function App() {
                 inspections: finalData.inspections || undefined,
                 citations: finalData.citations || undefined,
                 summaryPdf: finalData.summaryPdf || undefined,
+                quiz: finalData.quiz || undefined,
               };
             }
 
@@ -539,7 +577,7 @@ export default function App() {
       const fallbackAiMsg: ChatMessage = {
         id: `ai-err-${Date.now()}`,
         sender: 'ai',
-        text: `Đã tiếp nhận yêu cầu: "${userMessageText}".\n\nTheo quy định Hải quan hiện hành, mã HS và biểu thuế nhập khẩu ưu đãi đặc biệt được áp dụng dựa trên C/O hợp lệ (AJCEP/VJEPA). Cần chuẩn bị đầy đủ Tờ khai hải quan, Hóa đơn thương mại (Commercial Invoice) và Phiếu đóng gói (Packing List).`,
+        text: `Đã tiếp nhận yêu cầu: "${finalUserMessageText}".\n\nTheo quy định Hải quan hiện hành, mã HS và biểu thuế nhập khẩu ưu đãi đặc biệt được áp dụng dựa trên C/O hợp lệ (AJCEP/VJEPA). Cần chuẩn bị đầy đủ Tờ khai hải quan, Hóa đơn thương mại (Commercial Invoice) và Phiếu đóng gói (Packing List).`,
         timestamp: new Date().toLocaleTimeString('vi-VN', {
           hour: '2-digit',
           minute: '2-digit',
@@ -562,6 +600,7 @@ export default function App() {
       );
     } finally {
       setIsGenerating(false);
+      fetchUserUsage();
     }
   };
 
@@ -578,6 +617,7 @@ export default function App() {
         : '';
       const res = await fetch(`/api/sessions/${sessionId}${userIdParam}`, {
         method: 'DELETE',
+        headers: getAuthHeaders()
       });
       if (!res.ok) {
         alert('Không thể xóa cuộc hội thoại. Vui lòng thử lại.');
@@ -606,7 +646,7 @@ export default function App() {
   };
 
   // Handle User Login/Register Success
-  const handleAuthSuccess = (userInfo: { id?: string; email?: string; fullName: string }) => {
+  const handleAuthSuccess = (userInfo: { id?: string; email?: string; fullName: string }, token?: string) => {
     const user = {
       id: userInfo.id || `usr-${Date.now()}`,
       email: userInfo.email || '',
@@ -615,18 +655,25 @@ export default function App() {
     setCurrentUser(user);
     try {
       localStorage.setItem('logichat_user', JSON.stringify(user));
+      if (token) {
+        localStorage.setItem('logichat_token', token);
+      }
     } catch { }
 
+    setAuthModal({ isOpen: false, mode: 'login' });
     setActiveScreen('chat');
-    loadSessionsFromBackend();
+    // Immediately reload sessions with new token
+    setTimeout(() => loadSessionsFromBackend(), 100);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setSessions([]);
+    setActiveSessionId(null);
     try {
       localStorage.removeItem('logichat_user');
+      localStorage.removeItem('logichat_token');
     } catch { }
-    loadSessionsFromBackend();
     setActiveScreen('landing');
   };
 
@@ -727,6 +774,10 @@ export default function App() {
                     setUpgradeReason('manual');
                     setIsUpgradeModalOpen(true);
                   }}
+                  onStartQuiz={(quizId) => {
+                    setActiveQuizId(quizId);
+                    setIsQuizModalOpen(true);
+                  }}
                 />
               ) : (
                 <HistoryView
@@ -768,12 +819,23 @@ export default function App() {
         )}
 
         {/* Modals */}
+        <QuizRunnerModal
+          isOpen={isQuizModalOpen}
+          quizId={activeQuizId}
+          onClose={() => {
+            setIsQuizModalOpen(false);
+            setActiveQuizId(null);
+          }}
+          userId={currentUser?.id}
+          getAuthHeaders={getAuthHeaders}
+        />
+
         <AuthModal
           isOpen={authModal.isOpen}
           initialMode={authModal.mode}
           onClose={() => setAuthModal({ ...authModal, isOpen: false })}
-          onSuccess={(userName, userInfo) => {
-            handleAuthSuccess(userInfo || { fullName: userName });
+          onSuccess={(userName, userInfo, token) => {
+            handleAuthSuccess(userInfo || { fullName: userName }, token);
           }}
         />
 

@@ -4,7 +4,7 @@ interface AuthModalProps {
   isOpen: boolean;
   initialMode?: 'login' | 'register';
   onClose: () => void;
-  onSuccess: (userName: string, userInfo?: { id: string; email: string; fullName: string }) => void;
+  onSuccess: (userName: string, userInfo?: { id: string; email: string; fullName: string }, token?: string) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -51,7 +51,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       if (res.ok && data.success && data.user) {
         const name = data.user.fullName || fullName || email.split('@')[0] || 'Khách hàng LogiChat';
-        onSuccess(name, data.user);
+        onSuccess(name, data.user, data.token);
         onClose();
         setEmail('');
         setPassword('');
@@ -123,6 +123,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 type="text"
                 required
                 value={fullName}
+                autoComplete="name"
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Nguyễn Văn A - Công ty XNK"
                 className="w-full bg-blue-50 border border-blue-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
@@ -140,6 +141,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="email"
               required
               value={email}
+              autoComplete="email"
               onChange={(e) => setEmail(e.target.value)}
               placeholder="doanhnghiep@logichat.vn"
               className="w-full bg-blue-50 border border-blue-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
@@ -156,6 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="password"
               required
               value={password}
+              autoComplete={mode === 'register' ? "new-password" : "current-password"}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               className="w-full bg-blue-50 border border-blue-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
@@ -173,6 +176,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 type="password"
                 required
                 value={confirmPassword}
+                autoComplete="new-password"
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="••••••••"
                 className="w-full bg-blue-50 border border-blue-200 rounded-xl px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"

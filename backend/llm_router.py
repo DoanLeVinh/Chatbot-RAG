@@ -319,48 +319,41 @@ class LLMRouter:
 
             for model_name in self.gemini_models:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-                max_retries = 2
-                for attempt in range(max_retries + 1):
-                    req = urllib.request.Request(
-                        url,
-                        data=data,
-                        headers={
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": key_state.key
-                        },
-                        method="POST"
-                    )
+                req = urllib.request.Request(
+                    url,
+                    data=data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": key_state.key
+                    },
+                    method="POST"
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        resp_data = json.loads(resp.read().decode("utf-8"))
+                        if "candidates" in resp_data and len(resp_data["candidates"]) > 0:
+                            content = resp_data["candidates"][0]["content"]["parts"][0]["text"]
+                            if content and content.strip():
+                                key_state.mark_success()
+                                return content.strip(), f"gemini:{model_name}"
+                except urllib.error.HTTPError as exc:
+                    err_body = ""
                     try:
-                        with urllib.request.urlopen(req, timeout=60) as resp:
-                            resp_data = json.loads(resp.read().decode("utf-8"))
-                            if "candidates" in resp_data and len(resp_data["candidates"]) > 0:
-                                content = resp_data["candidates"][0]["content"]["parts"][0]["text"]
-                                if content and content.strip():
-                                    key_state.mark_success()
-                                    return content.strip(), f"gemini:{model_name}"
-                        break # Success, exit retry loop
-                    except urllib.error.HTTPError as exc:
-                        err_body = ""
-                        try:
-                            err_body = exc.read().decode("utf-8")
-                        except Exception:
-                            pass
+                        err_body = exc.read().decode("utf-8")
+                    except Exception:
+                        pass
 
-                        if exc.code == 429 or "quota" in err_body.lower():
-                            if attempt < max_retries:
-                                logger.info(f"Gemini 429 Rate Limit. Retrying in 2 seconds (Attempt {attempt+1}/{max_retries})...")
-                                time.sleep(2)
-                                continue
-                            key_state.mark_exhausted(cooldown_seconds=300, reason=f"Gemini 429 Quota Exceeded")
-                            break  # Try next key
-                        elif exc.code == 404:
-                            break  # Try next candidate model
-                        else:
-                            logger.warning(f"Gemini [{model_name}] HTTP {exc.code}: {err_body[:100]}")
-                            break
-                    except Exception as exc:
-                        logger.warning(f"Gemini [{model_name}] Error: {exc}")
+                    if exc.code in (429, 402, 403) or "quota" in err_body.lower():
+                        key_state.mark_exhausted(cooldown_seconds=300, reason=f"Gemini {exc.code} Quota Exceeded")
+                        break  # Try next key
+                    elif exc.code == 404:
+                        break  # Try next candidate model
+                    else:
+                        logger.warning(f"Gemini [{model_name}] HTTP {exc.code}: {err_body[:100]}")
                         break
+                except Exception as exc:
+                    logger.warning(f"Gemini [{model_name}] Error: {exc}")
+                    break
 
         return None
 
@@ -381,16 +374,18 @@ class LLMRouter:
             pass  # Ollama may not be responding or endpoint busy
 
         url = f"{self.ollama_host}/api/chat"
-        for model_name in candidate_models:
+        # Prioritize qwen2.5:3b if available
+        sorted_models = sorted(candidate_models, key=lambda m: 0 if 'qwen' in m.lower() else 1)
+        for model_name in sorted_models:
             payload = {
                 "model": model_name,
                 "messages": self._build_messages(system_prompt, user_prompt, chat_history),
                 "stream": False,
                 "options": {
                     "temperature": temperature,
-                    "num_predict": max_tokens,
-                    "num_ctx": 4096,
-                    "num_thread": min(4, os.cpu_count() or 4),
+                    "num_predict": min(max_tokens, 1200),
+                    "num_ctx": 2048,
+                    "num_thread": min(8, os.cpu_count() or 4),
                     "repeat_penalty": 1.1,
                     "top_p": 0.9
                 }
@@ -402,7 +397,7 @@ class LLMRouter:
                 method="POST"
             )
             try:
-                with urllib.request.urlopen(req, timeout=180) as resp:
+                with urllib.request.urlopen(req, timeout=45) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
                     msg = resp_data.get("message", {}).get("content", "")
                     if msg and msg.strip():
@@ -565,9 +560,9 @@ class LLMRouter:
             "stream": True,
             "options": {
                 "temperature": temperature,
-                "num_predict": max_tokens,
-                "num_ctx": 4096,
-                "num_thread": min(4, os.cpu_count() or 4),
+                "num_predict": min(max_tokens, 1200),
+                "num_ctx": 2048,
+                "num_thread": min(8, os.cpu_count() or 4),
                 "repeat_penalty": 1.1,
                 "top_p": 0.9
             }

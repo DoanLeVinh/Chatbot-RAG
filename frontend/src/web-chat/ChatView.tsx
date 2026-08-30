@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import { ChatSession, ChatMessage } from '../shared/types';
 import { RippleButton } from '../shared/components/RippleButton';
 import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor, FileText, ThumbsUp, ThumbsDown, Copy, SpeakerHigh, Check } from '@phosphor-icons/react';
-import { Zap, BrainCircuit } from 'lucide-react';
+import { Zap, BrainCircuit, BookOpenCheck, ArrowRight } from 'lucide-react';
 
 const getOrderedCitations = (msg: ChatMessage) => {
   if (!msg.citations || msg.citations.length === 0) return { processedText: msg.text, orderedCitations: [] };
@@ -56,6 +56,7 @@ interface ChatViewProps {
   setAiModel?: (model: 'logi_fast' | 'logi_think') => void;
   userPlan?: 'free' | 'pro';
   onUpgradeClick?: () => void;
+  onStartQuiz?: (quizId: string) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -71,6 +72,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   setAiModel,
   userPlan = 'free',
   onUpgradeClick,
+  onStartQuiz,
 }) => {
   const [inputText, setInputText] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
@@ -192,7 +194,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                 }`}
               >
-                <Zap size={14} weight="fill" />
+                <Zap size={14} />
                 <span className="hidden sm:inline">Logi Fast</span>
               </button>
               <button
@@ -209,7 +211,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                 }`}
               >
-                <BrainCircuit size={14} weight="fill" />
+                <BrainCircuit size={14} />
                 <span className="hidden sm:inline">Logi Think</span>
                 {userPlan === 'free' && <ShieldCheck size={12} weight="fill" className="text-amber-500 ml-0.5" />}
               </button>
@@ -250,16 +252,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
             const isUser = msg.sender === 'user';
 
             if (isUser) {
-              // Clean display text: hide the long "[Văn bản trích xuất từ ảnh...]" block from UI
-              const displayText = msg.text.replace(/\[Văn bản trích xuất từ ảnh[^\]]*\]:\n[\s\S]*$/, '').trim()
-                || msg.text.replace(/\[Đính kèm:.*?\]/, '').trim()
-                || msg.text;
+              // Clean display text: hide the long "[Văn bản trích xuất từ ảnh...]" or "[Đính kèm: ...]" block from UI
+              const displayText = msg.text
+                .replace(/\[Văn bản trích xuất từ ảnh[^\]]*\]:\n[\s\S]*$/, '')
+                .replace(/\[Đính kèm:[^\]]*\]/, '')
+                .trim();
+
               return (
                 <div key={msg.id} className="flex gap-3 max-w-[85%] ml-auto flex-row-reverse">
                   <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 shadow-sm border border-white">
                     <User size={16} weight="bold" />
                   </div>
                   <div className={`${userPlan === 'pro' ? 'bg-gradient-to-br from-blue-600 to-indigo-600 shadow-md shadow-blue-500/20' : 'bg-primary shadow-sm'} text-white rounded-[1.5rem] rounded-tr-sm px-5 py-3.5 text-sm sm:text-base leading-relaxed whitespace-pre-wrap transition-all duration-300`}>
+                    {/* Attachment file card */}
+                    {msg.attachment && (
+                      <div className="flex items-center gap-3 p-2.5 mb-2.5 rounded-xl bg-white/15 border border-white/20 backdrop-blur-xs text-white">
+                        <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                          <FileText size={18} weight="bold" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs sm:text-sm font-bold truncate leading-tight">{msg.attachment.name}</p>
+                          <p className="text-[11px] opacity-80 mt-0.5">{msg.attachment.size}</p>
+                        </div>
+                      </div>
+                    )}
+
                     {msg.imageUrl && (
                       <img 
                         src={msg.imageUrl} 
@@ -267,7 +284,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         className="max-w-[240px] max-h-[180px] rounded-xl mb-2 border border-white/30 shadow-sm object-cover"
                       />
                     )}
-                    {displayText || 'Đã gửi hình ảnh'}
+
+                    {displayText ? (
+                      <span>{displayText}</span>
+                    ) : msg.attachment ? (
+                      <span className="text-xs opacity-90 italic">Đã đính kèm tệp tài liệu</span>
+                    ) : (
+                      <span>Đã gửi hình ảnh</span>
+                    )}
                   </div>
                 </div>
               );
@@ -283,48 +307,62 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <div className="text-sm sm:text-base leading-snug text-slate-800 whitespace-pre-wrap min-h-[1.5rem] [&_li>p]:mb-0 [&_li>p]:inline-block [&_li]:mt-0.5">
                     {isGenerating && msg.text === '' ? (
                       <div className="py-2 space-y-2">
-                        {[
-                          { id: 'search',   icon: '🔍', label: 'Tìm kiếm văn bản pháp luật' },
-                          { id: 'analyze',  icon: '⚖️', label: 'Phân tích độ phù hợp' },
-                          { id: 'generate', icon: '✍️', label: 'Tổng hợp câu trả lời' },
-                        ].map((step, idx) => {
-                          const stages = [
-                            '🔍 Đang tìm kiếm văn bản pháp luật liên quan...',
-                            '⚖️ Đang phân tích và đánh giá mức độ phù hợp...',
-                            '✍️ Đang tổng hợp câu trả lời...',
-                          ];
-                          const currentIdx = stages.findIndex(s => s === msg.currentStage);
-                          const isActive  = currentIdx === idx;
-                          const isDone    = currentIdx > idx;
-                          return (
-                            <div key={step.id} className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-500 ${
-                              isActive  ? 'bg-blue-50 border border-blue-200 shadow-sm' :
-                              isDone    ? 'bg-green-50 border border-green-100 opacity-70' :
-                              'opacity-35'
-                            }`}>
-                              {isActive ? (
-                                <div className="flex items-center gap-0.5 shrink-0">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-[bounce_0.8s_ease-in-out_infinite]" />
-                                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-[bounce_0.8s_ease-in-out_0.15s_infinite]" />
-                                  <div className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-[bounce_0.8s_ease-in-out_0.3s_infinite]" />
-                                </div>
-                              ) : isDone ? (
-                                <span className="text-green-500 text-sm shrink-0">✓</span>
-                              ) : (
-                                <div className="w-4 h-4 rounded-full border-2 border-slate-200 shrink-0" />
-                              )}
-                              <span className="text-base shrink-0">{step.icon}</span>
-                              <span className={`text-sm font-medium ${
-                                isActive  ? 'text-blue-700' :
-                                isDone    ? 'text-green-700' :
-                                'text-slate-400'
-                              }`}>
-                                {step.label}
-                                {isActive && <span className="ml-1 text-blue-400 animate-pulse">…</span>}
-                              </span>
-                            </div>
+                        {(() => {
+                          const isQuiz = msg.currentStage && (
+                            msg.currentStage.includes('trắc nghiệm') || 
+                            msg.currentStage.includes('biên soạn') ||
+                            msg.currentStage.includes('tổng hợp kiến thức')
                           );
-                        })}
+
+                          const steps = isQuiz ? [
+                            { id: 'q1', icon: '🔍', label: 'Tổng hợp kiến thức & Căn cứ pháp lý', prefix: '🔍' },
+                            { id: 'q2', icon: '📝', label: 'Biên soạn bộ câu hỏi trắc nghiệm', prefix: '📝' },
+                          ] : [
+                            { id: 's1', icon: '🔍', label: 'Tìm kiếm văn bản pháp luật', prefix: '🔍' },
+                            { id: 's2', icon: '⚖️', label: 'Phân tích độ phù hợp', prefix: '⚖️' },
+                            { id: 's3', icon: '✍️', label: 'Tổng hợp câu trả lời', prefix: '✍️' },
+                          ];
+
+                          let activeIdx = 0;
+                          if (msg.currentStage) {
+                            const found = steps.findIndex(st => msg.currentStage?.startsWith(st.prefix) || msg.currentStage?.includes(st.label));
+                            if (found !== -1) activeIdx = found;
+                          }
+
+                          return steps.map((step, idx) => {
+                            const isActive = idx === activeIdx;
+                            const isDone = idx < activeIdx;
+
+                            return (
+                              <div key={step.id} className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-500 ${
+                                isActive ? 'bg-blue-50 border border-blue-200 shadow-xs' :
+                                isDone ? 'bg-green-50 border border-green-100 opacity-75' :
+                                'opacity-35'
+                              }`}>
+                                {isActive ? (
+                                  <div className="flex items-center gap-0.5 shrink-0">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-[bounce_0.8s_ease-in-out_infinite]" />
+                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-[bounce_0.8s_ease-in-out_0.15s_infinite]" />
+                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-[bounce_0.8s_ease-in-out_0.3s_infinite]" />
+                                  </div>
+                                ) : isDone ? (
+                                  <span className="text-green-500 text-sm font-bold shrink-0">✓</span>
+                                ) : (
+                                  <div className="w-4 h-4 rounded-full border-2 border-slate-200 shrink-0" />
+                                )}
+                                <span className="text-base shrink-0">{step.icon}</span>
+                                <span className={`text-sm font-medium ${
+                                  isActive ? 'text-blue-700 font-semibold' :
+                                  isDone ? 'text-green-700' :
+                                  'text-slate-400'
+                                }`}>
+                                  {step.label}
+                                  {isActive && <span className="ml-1 text-blue-400 animate-pulse">…</span>}
+                                </span>
+                              </div>
+                            );
+                          });
+                        })()}
                       </div>
                     ) : (
                       (() => {
@@ -470,6 +508,41 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       })()
                     )}
                   </div>
+
+                  {/* Interactive In-Chat Quiz Card */}
+                  {msg.quiz && (
+                    <div className="mt-3.5 p-4 rounded-2xl bg-gradient-to-br from-indigo-50/90 via-blue-50/70 to-slate-50 border border-blue-200/80 shadow-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+                            <BookOpenCheck size={20} className="stroke-[2.2]" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-slate-900 leading-tight flex items-center gap-2">
+                              {msg.quiz.title}
+                              <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                {msg.quiz.totalQuestions} Câu
+                              </span>
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {msg.quiz.sourceType === 'document_upload' 
+                                ? `Nguồn: ${msg.quiz.sourceName || 'Tài liệu đính kèm'}`
+                                : 'Nguồn: Hệ thống Văn bản Quy phạm Pháp luật Hải quan'}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => onStartQuiz && onStartQuiz(msg.quiz!.id)}
+                          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                        >
+                          <span>Bắt đầu làm bài</span>
+                          <ArrowRight size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Download Summary PDF Button */}
                   {msg.summaryPdf && (

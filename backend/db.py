@@ -235,6 +235,67 @@ def init_db():
             );
         """)
 
+        # Migration: Ensure 'quiz_json' column exists in messages
+        cursor.execute("PRAGMA table_info(messages);")
+        msg_cols = [col["name"] for col in cursor.fetchall()]
+        if "quiz_json" not in msg_cols:
+            cursor.execute("ALTER TABLE messages ADD COLUMN quiz_json TEXT;")
+
+        # Table: quizzes
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS quizzes (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                user_id TEXT,
+                title TEXT NOT NULL,
+                topic TEXT,
+                source_type TEXT NOT NULL,
+                source_name TEXT,
+                total_questions INTEGER NOT NULL,
+                time_limit_minutes INTEGER DEFAULT 15,
+                difficulty TEXT DEFAULT 'medium',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        """)
+
+        # Table: quiz_questions
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS quiz_questions (
+                id TEXT PRIMARY KEY,
+                quiz_id TEXT NOT NULL,
+                question_index INTEGER NOT NULL,
+                question_text TEXT NOT NULL,
+                option_a TEXT NOT NULL,
+                option_b TEXT NOT NULL,
+                option_c TEXT NOT NULL,
+                option_d TEXT NOT NULL,
+                correct_option TEXT NOT NULL,
+                explanation TEXT NOT NULL,
+                citation_code TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
+            );
+        """)
+
+        # Table: quiz_submissions
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS quiz_submissions (
+                id TEXT PRIMARY KEY,
+                quiz_id TEXT NOT NULL,
+                user_id TEXT,
+                score REAL NOT NULL,
+                total_correct INTEGER NOT NULL,
+                total_questions INTEGER NOT NULL,
+                answers_json TEXT NOT NULL,
+                time_spent_seconds INTEGER DEFAULT 0,
+                completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        """)
+
         # Seed Default Admin Account if not exists
         cursor.execute("SELECT id FROM users WHERE email = 'admin@logichat.vn';")
         if not cursor.fetchone():
@@ -384,7 +445,7 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     """Retrieve user record by user ID."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, email, full_name, role, subscription_plan, subscription_expiry, created_at FROM users WHERE id = ?;", (user_id,))
+        cursor.execute("SELECT id, email, password_hash, full_name, role, subscription_plan, subscription_expiry, created_at FROM users WHERE id = ?;", (user_id,))
         row = cursor.fetchone()
         if row:
             res = dict(row)
@@ -512,6 +573,7 @@ def get_user_sessions(user_id: Optional[str] = None, search: Optional[str] = Non
                     "inspections": json.loads(m["inspections_json"]) if m["inspections_json"] else None,
                     "citations": citations,
                     "summaryPdf": json.loads(m["summary_pdf_json"]) if m["summary_pdf_json"] else None,
+                    "quiz": json.loads(m["quiz_json"]) if ("quiz_json" in m.keys() and m["quiz_json"]) else None,
                 })
 
             cursor.execute("SELECT * FROM attachments WHERE session_id = ?;", (r["id"],))
@@ -555,13 +617,13 @@ def get_user_sessions(user_id: Optional[str] = None, search: Optional[str] = Non
         }
 
 def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Get full details of a session, enforcing user ownership."""
+    """Get full details of a session, enforcing strict user ownership."""
     with get_connection() as conn:
         cursor = conn.cursor()
         if user_id:
             cursor.execute("SELECT * FROM sessions WHERE id = ? AND (user_id = ? OR user_id IS NULL);", (session_id, user_id))
         else:
-            cursor.execute("SELECT * FROM sessions WHERE id = ?;", (session_id,))
+            cursor.execute("SELECT * FROM sessions WHERE id = ? AND user_id IS NULL;", (session_id,))
 
         s_row = cursor.fetchone()
         if not s_row:
@@ -591,6 +653,7 @@ def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Option
                 "inspections": json.loads(m["inspections_json"]) if m["inspections_json"] else None,
                 "citations": citations,
                 "summaryPdf": json.loads(m["summary_pdf_json"]) if m["summary_pdf_json"] else None,
+                "quiz": json.loads(m["quiz_json"]) if ("quiz_json" in m.keys() and m["quiz_json"]) else None,
             })
 
         cursor.execute("SELECT * FROM attachments WHERE session_id = ?;", (session_id,))
@@ -620,19 +683,19 @@ def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Option
         }
 
 def delete_session(session_id: str, user_id: Optional[str] = None) -> bool:
-    """Delete a session by ID."""
+    """Delete a session by ID enforcing user ownership."""
     with get_connection() as conn:
         cursor = conn.cursor()
         if user_id:
-            cursor.execute("DELETE FROM sessions WHERE id = ? AND (user_id = ? OR user_id IS NULL);", (session_id, user_id))
+            cursor.execute("DELETE FROM sessions WHERE id = ? AND user_id = ?;", (session_id, user_id))
         else:
-            cursor.execute("DELETE FROM sessions WHERE id = ?;", (session_id,))
+            cursor.execute("DELETE FROM sessions WHERE id = ? AND user_id IS NULL;", (session_id,))
         conn.commit()
         return cursor.rowcount > 0
 
 def add_message(session_id: str, sender: str, text: str, timestamp: str,
                 hs_code: str = None, taxes: list = None, inspections: dict = None,
-                citations: list = None, summary_pdf: dict = None, user_id: str = None) -> str:
+                citations: list = None, summary_pdf: dict = None, quiz: dict = None, user_id: str = None) -> str:
     """Add a new chat message to SQLite database with auto-session recovery."""
     msg_id = f"{sender}-{uuid.uuid4().hex[:8]}"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -641,13 +704,14 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
     inspections_str = json.dumps(inspections, ensure_ascii=False) if inspections else None
     citations_str = json.dumps(citations, ensure_ascii=False) if citations else None
     pdf_str = json.dumps(summary_pdf, ensure_ascii=False) if summary_pdf else None
+    quiz_str = json.dumps(quiz, ensure_ascii=False) if quiz else None
 
     with get_connection() as conn:
         cursor = conn.cursor()
+
+        # Ensure user_id exists if provided
+        user_id = _ensure_user_exists_cursor(cursor, user_id)
         
-        # Auto-recover session if it doesn't exist to prevent foreign key errors.
-        # Gắn user_id ngay khi tạo, để lịch sử của người dùng đã đăng nhập không bị
-        # rơi vào phiên "vô danh" (user_id NULL) và biến mất sau khi tải lại trang.
         cursor.execute("SELECT id, title, user_id FROM sessions WHERE id = ?;", (session_id,))
         s_row = cursor.fetchone()
         if not s_row:
@@ -657,17 +721,14 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
                 (session_id, user_id, text[:100] if text else "Bắt đầu...", now_str, now_str)
             )
         elif user_id and not s_row["user_id"]:
-            # Phiên đã tồn tại nhưng chưa gắn user (được tạo lúc chưa đăng nhập) —
-            # nếu giờ người dùng đã đăng nhập, gắn phiên này vào tài khoản của họ.
             cursor.execute("UPDATE sessions SET user_id = ? WHERE id = ?;", (user_id, session_id))
 
         cursor.execute(
-            """INSERT INTO messages (id, session_id, sender, text, timestamp, hs_code, taxes_json, inspections_json, citations_json, summary_pdf_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
-            (msg_id, session_id, sender, text, timestamp, hs_code, taxes_str, inspections_str, citations_str, pdf_str)
+            """INSERT INTO messages (id, session_id, sender, text, timestamp, hs_code, taxes_json, inspections_json, citations_json, summary_pdf_json, quiz_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+            (msg_id, session_id, sender, text, timestamp, hs_code, taxes_str, inspections_str, citations_str, pdf_str, quiz_str)
         )
         
-        # Update session title and preview if user message
         if sender == 'user':
             cursor.execute("SELECT title FROM sessions WHERE id = ?;", (session_id,))
             current_s_row = cursor.fetchone()
@@ -679,6 +740,212 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
 
         conn.commit()
         return msg_id
+
+def _ensure_user_exists_cursor(cursor, user_id: Optional[str]) -> Optional[str]:
+    """Ensure user exists in users table to satisfy foreign keys and preserve user_id."""
+    if not user_id:
+        return None
+    cursor.execute("SELECT id FROM users WHERE id = ?;", (user_id,))
+    if not cursor.fetchone():
+        cursor.execute(
+            "INSERT OR IGNORE INTO users (id, email, password_hash, salt, full_name, role) VALUES (?, ?, 'dummy', 'dummy', ?, 'guest');",
+            (user_id, f"{user_id}@system.local", f"User {user_id}")
+        )
+    return user_id
+
+# ─── Quiz & Assessment Database Methods ────────────────────────────
+
+def create_quiz(session_id: Optional[str], user_id: Optional[str], title: str,
+                topic: str, source_type: str, source_name: str,
+                total_questions: int, time_limit_minutes: int,
+                difficulty: str, questions: list) -> str:
+    """Create a new quiz record and its questions in SQLite."""
+    quiz_id = f"quiz-{uuid.uuid4().hex[:10]}"
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        # Ensure user_id exists if provided
+        user_id = _ensure_user_exists_cursor(cursor, user_id)
+
+        # Ensure session_id exists in sessions table
+        if session_id:
+            cursor.execute("SELECT id FROM sessions WHERE id = ?;", (session_id,))
+            if not cursor.fetchone():
+                cursor.execute(
+                    """INSERT INTO sessions (id, user_id, title, category_tag, group_name, preview_text, created_at, updated_at)
+                       VALUES (?, ?, 'Hội thoại tư vấn mới', 'Tư vấn Hải quan', 'TODAY', 'Bài trắc nghiệm...', ?, ?);""",
+                    (session_id, user_id, now_str, now_str)
+                )
+
+        cursor.execute("""
+            INSERT INTO quizzes (id, session_id, user_id, title, topic, source_type, source_name, total_questions, time_limit_minutes, difficulty, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (quiz_id, session_id, user_id, title, topic, source_type, source_name, total_questions, time_limit_minutes, difficulty, now_str))
+
+        for idx, q in enumerate(questions, 1):
+            q_id = f"qq-{uuid.uuid4().hex[:8]}"
+            opts = q.get("options") if isinstance(q.get("options"), dict) else {}
+            opt_a = opts.get("A") or q.get("option_a") or ""
+            opt_b = opts.get("B") or q.get("option_b") or ""
+            opt_c = opts.get("C") or q.get("option_c") or ""
+            opt_d = opts.get("D") or q.get("option_d") or ""
+            correct = str(q.get("correct_option") or q.get("correctOption") or "A").strip().upper()
+
+            cursor.execute("""
+                INSERT INTO quiz_questions (id, quiz_id, question_index, question_text, option_a, option_b, option_c, option_d, correct_option, explanation, citation_code, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                q_id, quiz_id, idx,
+                q.get("question") or q.get("question_text") or "",
+                opt_a, opt_b, opt_c, opt_d,
+                correct,
+                q.get("explanation") or "",
+                q.get("citation_code") or q.get("citation") or "",
+                now_str
+            ))
+        conn.commit()
+    return quiz_id
+
+def get_quiz_by_id(quiz_id: str, include_answers: bool = False) -> Optional[Dict[str, Any]]:
+    """Retrieve quiz by ID. Hides correct answers/explanations unless include_answers=True."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM quizzes WHERE id = ?;", (quiz_id,))
+        q_row = cursor.fetchone()
+        if not q_row:
+            return None
+
+        cursor.execute("SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY question_index ASC;", (quiz_id,))
+        qq_rows = cursor.fetchall()
+
+        questions = []
+        for r in qq_rows:
+            q_data = {
+                "id": r["id"],
+                "questionIndex": r["question_index"],
+                "questionText": r["question_text"],
+                "optionA": r["option_a"],
+                "optionB": r["option_b"],
+                "optionC": r["option_c"],
+                "optionD": r["option_d"],
+            }
+            if include_answers:
+                q_data["correctOption"] = r["correct_option"]
+                q_data["explanation"] = r["explanation"]
+                q_data["citationCode"] = r["citation_code"]
+            questions.append(q_data)
+
+        return {
+            "id": q_row["id"],
+            "sessionId": q_row["session_id"],
+            "userId": q_row["user_id"],
+            "title": q_row["title"],
+            "topic": q_row["topic"],
+            "sourceType": q_row["source_type"],
+            "sourceName": q_row["source_name"],
+            "totalQuestions": q_row["total_questions"],
+            "timeLimitMinutes": q_row["time_limit_minutes"],
+            "difficulty": q_row["difficulty"],
+            "createdAt": q_row["created_at"],
+            "questions": questions
+        }
+
+def submit_quiz_answers(quiz_id: str, user_id: Optional[str], answers: dict, time_spent_seconds: int = 0) -> Optional[Dict[str, Any]]:
+    """Evaluate and grade quiz submission, persisting results to SQLite."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM quizzes WHERE id = ?;", (quiz_id,))
+        q_row = cursor.fetchone()
+        if not q_row:
+            return None
+
+        cursor.execute("SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY question_index ASC;", (quiz_id,))
+        qq_rows = cursor.fetchall()
+
+        total_questions = len(qq_rows)
+        total_correct = 0
+        questions_with_answers = []
+
+        for r in qq_rows:
+            q_id = r["id"]
+            user_opt = answers.get(q_id)
+            if user_opt:
+                user_opt = str(user_opt).strip().upper()
+            correct_opt = str(r["correct_option"]).strip().upper()
+            is_correct = bool(user_opt and user_opt == correct_opt)
+            if is_correct:
+                total_correct += 1
+
+            questions_with_answers.append({
+                "id": q_id,
+                "questionIndex": r["question_index"],
+                "questionText": r["question_text"],
+                "optionA": r["option_a"],
+                "optionB": r["option_b"],
+                "optionC": r["option_c"],
+                "optionD": r["option_d"],
+                "userOption": user_opt,
+                "correctOption": correct_opt,
+                "isCorrect": is_correct,
+                "explanation": r["explanation"],
+                "citationCode": r["citation_code"]
+            })
+
+        score = round((total_correct / max(1, total_questions)) * 100, 1)
+        sub_id = f"sub-{uuid.uuid4().hex[:10]}"
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Ensure user_id exists if provided
+        user_id = _ensure_user_exists_cursor(cursor, user_id)
+
+        cursor.execute("""
+            INSERT INTO quiz_submissions (id, quiz_id, user_id, score, total_correct, total_questions, answers_json, time_spent_seconds, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (sub_id, quiz_id, user_id, score, total_correct, total_questions, json.dumps(answers, ensure_ascii=False), time_spent_seconds, now_str))
+        conn.commit()
+
+        return {
+            "submissionId": sub_id,
+            "quizId": quiz_id,
+            "title": q_row["title"],
+            "score": score,
+            "totalCorrect": total_correct,
+            "totalQuestions": total_questions,
+            "percentage": score,
+            "passed": score >= 70.0,
+            "timeSpentSeconds": time_spent_seconds,
+            "completedAt": now_str,
+            "questionsWithAnswers": questions_with_answers
+        }
+
+def get_user_quiz_history(user_id: str, limit: int = 20) -> list:
+    """Get history of quiz attempts for a user."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT s.*, q.title as quiz_title, q.source_type, q.source_name
+            FROM quiz_submissions s
+            JOIN quizzes q ON s.quiz_id = q.id
+            WHERE s.user_id = ?
+            ORDER BY s.completed_at DESC LIMIT ?;
+        """, (user_id, limit))
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "quizId": r["quiz_id"],
+                "title": r["quiz_title"],
+                "sourceType": r["source_type"],
+                "sourceName": r["source_name"],
+                "score": r["score"],
+                "totalCorrect": r["total_correct"],
+                "totalQuestions": r["total_questions"],
+                "timeSpentSeconds": r["time_spent_seconds"],
+                "completedAt": r["completed_at"]
+            }
+            for r in rows
+        ]
 
 def get_recent_messages_for_llm(session_id: str, limit: int = 4) -> list:
     """Lấy N tin nhắn gần nhất để làm Sliding Window Memory cho LLM."""
@@ -704,6 +971,9 @@ def save_attachment(session_id: Optional[str], user_id: Optional[str], file_name
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
         cursor = conn.cursor()
+
+        # Ensure user_id exists if provided
+        user_id = _ensure_user_exists_cursor(cursor, user_id)
         
         if session_id:
             cursor.execute("SELECT id FROM sessions WHERE id = ?;", (session_id,))
@@ -1084,109 +1354,136 @@ def update_document_status(filename: str, status: str):
         conn.commit()
 
 def get_documents_hierarchy() -> List[Dict[str, Any]]:
-    """Get list of PDF sources, processing status, and their chunk count."""
+    """Get list of PDF sources, processing status, and their chunk count across all tables and the papers folder."""
     with get_connection() as conn:
         cursor = conn.cursor()
         
-        # Use documents table for primary tracking and left join chunks
+        # 1. Sources from document_parent_chunks
         cursor.execute("""
-            SELECT d.filename, d.status, COUNT(c.id) as chunk_count 
-            FROM documents d
-            LEFT JOIN document_nodes c ON c.source = 'papers/' || d.filename 
-            GROUP BY d.filename, d.status
-            ORDER BY d.upload_date DESC;
+            SELECT source, COUNT(*) as chunk_count 
+            FROM document_parent_chunks 
+            GROUP BY source;
         """)
-        rows = cursor.fetchall()
-        
-        result = []
-        # Fallback for old documents that are in document_nodes but not in documents table
-        # Find any distinct sources in document_nodes that are not in documents
+        parent_sources = {r["source"]: r["chunk_count"] for r in cursor.fetchall()}
+
+        # 2. Sources from document_nodes
         cursor.execute("""
             SELECT source, COUNT(*) as chunk_count 
             FROM document_nodes 
-            WHERE source NOT IN (SELECT 'papers/' || filename FROM documents)
             GROUP BY source;
         """)
-        legacy_sources = cursor.fetchall()
+        node_sources = {r["source"]: r["chunk_count"] for r in cursor.fetchall()}
 
-        for s_row in legacy_sources:
-            if s_row["source"].startswith("papers/"):
-                filename = s_row["source"].replace("papers/", "")
-                result.append({
-                    "source": s_row["source"],
-                    "total_chunks": s_row["chunk_count"],
-                    "status": "ready"
-                })
-        
-        for r in rows:
-            result.append({
-                "source": f"papers/{r['filename']}",
-                "total_chunks": r["chunk_count"],
-                "status": r["status"]
-            })
+        # 3. Documents table
+        cursor.execute("SELECT filename, status FROM documents ORDER BY upload_date DESC;")
+        doc_rows = {r["filename"]: r["status"] for r in cursor.fetchall()}
+
+        # 4. Scan physical papers directory
+        papers_dir = Path(__file__).resolve().parent.parent / "papers"
+        physical_files = set()
+        if papers_dir.exists():
+            for f in papers_dir.glob("*.pdf"):
+                physical_files.add(f.name)
+
+        # Merge all distinct sources
+        all_sources = set()
+        for s in parent_sources:
+            all_sources.add(s)
+        for s in node_sources:
+            all_sources.add(s)
+        for fname in doc_rows:
+            all_sources.add(f"papers/{fname}" if not fname.startswith("papers/") else fname)
+        for pf in physical_files:
+            all_sources.add(f"papers/{pf}")
+
+        result = []
+        for s in sorted(all_sources):
+            clean_name = s.replace("papers/", "").replace("papers\\", "")
+            chunk_cnt = (
+                node_sources.get(s, 0)
+                or parent_sources.get(s, 0)
+                or parent_sources.get(f"papers/{clean_name}", 0)
+                or node_sources.get(f"papers/{clean_name}", 0)
+            )
+            status = doc_rows.get(clean_name, "ready" if chunk_cnt > 0 else "unprocessed")
             
+            result.append({
+                "source": s if s.startswith("papers/") else f"papers/{s}",
+                "total_chunks": chunk_cnt,
+                "status": status
+            })
+
         return result
 
 def get_chunks_by_source(source: str) -> List[Dict[str, Any]]:
-    """Get all hierarchical chunks belonging to a specific source."""
+    """Get all chunks belonging to a specific source (from document_nodes or document_parent_chunks)."""
     with get_connection() as conn:
         cursor = conn.cursor()
         
+        # 1. Try document_nodes first
         cursor.execute(
-            "SELECT * FROM document_nodes WHERE source = ? ORDER BY rowid;",
-            (source,)
+            "SELECT * FROM document_nodes WHERE source = ? OR source = ? ORDER BY rowid;",
+            (source, f"papers/{source.replace('papers/', '')}")
         )
-            
         rows = cursor.fetchall()
-        result = []
-        for r in rows:
-            chunk = dict(r)
-            # Map columns to match old frontend format to prevent UI breaking completely
-            chunk["parent_id"] = r["parent_id"]
-            chunk["node_id"] = r["id"]
-            chunk["chapter"] = r["node_type"].upper()
-            chunk["article_ids"] = [r["title"]] if r["title"] else []
-            chunk["text"] = r["text_content"]
-            result.append(chunk)
-            
-        # Build tree structure
-        node_map = {n["node_id"]: n for n in result}
-        tree = []
         
-        for n in result:
-            n["children"] = []
-            
-        for n in result:
-            pid = n["parent_id"]
-            if pid and pid in node_map:
-                node_map[pid]["children"].append(n)
-            else:
-                tree.append(n)
+        if rows:
+            result = []
+            for r in rows:
+                chunk = dict(r)
+                chunk["parent_id"] = r["parent_id"]
+                chunk["node_id"] = r["id"]
+                chunk["chapter"] = (r["node_type"] or "NỘI DUNG").upper()
+                chunk["article_ids"] = [r["title"]] if r["title"] else []
+                chunk["text"] = r["text_content"]
+                result.append(chunk)
                 
-        return tree
+            node_map = {n["node_id"]: n for n in result}
+            tree = []
+            for n in result:
+                n["children"] = []
+            for n in result:
+                pid = n["parent_id"]
+                if pid and pid in node_map:
+                    node_map[pid]["children"].append(n)
+                else:
+                    tree.append(n)
+            return tree
+
+        # 2. Fallback to document_parent_chunks
+        clean_name = source.replace("papers/", "").replace("papers\\", "")
+        cursor.execute(
+            "SELECT * FROM document_parent_chunks WHERE source = ? OR source = ? OR source LIKE ? ORDER BY parent_id;",
+            (source, f"papers/{clean_name}", f"%{clean_name}%")
+        )
+        p_rows = cursor.fetchall()
+        if p_rows:
+            tree = []
+            for r in p_rows:
+                article_ids = [x.strip() for x in r["article_ids"].split(",") if x.strip()] if r["article_ids"] else []
+                tree.append({
+                    "node_id": r["parent_id"],
+                    "parent_id": r["parent_id"],
+                    "chapter": r["chapter"] or "ĐIỀU KHOẢN",
+                    "article_ids": article_ids,
+                    "text": r["text"],
+                    "children": []
+                })
+            return tree
+
+        return []
 
 def delete_document_by_source(source: str) -> bool:
     """Delete all chunks and document records belonging to a specific source."""
     with get_connection() as conn:
         cursor = conn.cursor()
+        clean_name = source.replace("papers/", "").replace("papers\\", "")
         
-        # Determine filename from source (e.g., 'papers/file.pdf' -> 'file.pdf')
-        filename = source.replace("papers/", "") if source.startswith("papers/") else source
-        
-        # 1. Delete from document_nodes
-        cursor.execute("DELETE FROM document_nodes WHERE source = ?;", (source,))
-        deleted_parents = cursor.rowcount
-        
-        # 2. Delete from legacy document_chunks
-        cursor.execute("DELETE FROM document_chunks WHERE document_id IN (SELECT id FROM documents WHERE filename = ?);", (filename,))
-        deleted_legacy = cursor.rowcount
-        
-        # 3. Delete from documents table
-        cursor.execute("DELETE FROM documents WHERE filename = ?;", (filename,))
-        deleted_docs = cursor.rowcount
-        
+        cursor.execute("DELETE FROM document_nodes WHERE source = ? OR source LIKE ?;", (source, f"%{clean_name}%"))
+        cursor.execute("DELETE FROM document_parent_chunks WHERE source = ? OR source LIKE ?;", (source, f"%{clean_name}%"))
+        cursor.execute("DELETE FROM documents WHERE filename = ? OR filename = ?;", (clean_name, source))
         conn.commit()
-        return (deleted_parents > 0) or (deleted_legacy > 0) or (deleted_docs > 0)
+        return True
 
 # Initialize DB upon import
 init_db()

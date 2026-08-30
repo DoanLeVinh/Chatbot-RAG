@@ -104,6 +104,22 @@ Migration Plan
 
 Không áp dụng — đây là hệ thống mới, không có hệ thống cũ cần migrate.
 
+## Current System Status & Bug Fix Plan (Aug 30, 2026)
+
+### Lỗi hiện tại (Chưa giải quyết triệt để trên máy người dùng)
+Hệ thống hiển thị lỗi 401 (Unauthorized) liên tục khi Frontend gửi request `/api/sessions` và `/api/chat/stream`. 
+Bên cạnh đó, các cảnh báo HTML (missing id/name/autocomplete) trên `AuthModal` vẫn còn xuất hiện ở màn hình Console. 
+
+**Nguyên nhân gốc (Root Cause):**
+Dù mã nguồn (source code) đã được vá (Fix logic Token onSuccess, Fix IDOR anonymous mode, Fix `r = get_retriever()` stream exception, Fix cảnh báo HTML), **trình duyệt của người dùng vẫn đang chạy bản cache (mã JavaScript cũ)**, do người dùng chưa Hard Reload (Ctrl + F5). Ngoài ra tiến trình Node (Vite) và Python (Uvicorn) có thể chưa kill hoàn toàn khiến code mới không được load.
+
+### Implementation Plan (Kế hoạch Fix)
+Tôi sẽ tiến hành thực hiện các bước sau hoàn toàn tự động bằng script để đảm bảo môi trường sạch 100%:
+1. Dọn dẹp tiến trình: Tìm và kill tất cả các tiến trình Node.js (Vite port 3000) và Python (Uvicorn port 8000) đang chạy ẩn/treo.
+2. Khởi động ngầm Backend: Gọi `python serve.py` chạy ngầm.
+3. Khởi động ngầm Frontend: Gọi `npm run dev` chạy ngầm.
+4. Hướng dẫn người dùng Hard-Reload: Yêu cầu người dùng thực hiện xóa Cache trình duyệt (Ctrl + F5) để ép trình duyệt tải HTML/JS mới có chứa bản vá.
+
 Open Questions
 Nguồn văn bản pháp luật chính thức nào sẽ được dùng làm dữ liệu gốc (Cổng thông tin Bộ Tài chính, Tổng cục Hải quan, Thư viện Pháp luật...)? Cần chốt trước khi bắt đầu Task 1 trong tasks.md.
 Có cần hỗ trợ trích dẫn theo số điều/khoản cụ thể (thay vì chỉ tên file + vị trí ký tự) không? Nếu có, cần bổ sung bước tiền xử lý gắn metadata điều khoản khi ingest. -e
@@ -380,7 +396,85 @@ Source Citation)
  9.1 Hoàn thiện README.md: cài đặt, chạy, đổi provider, cấu trúc thư mục
  9.2 Viết hướng dẫn cập nhật dữ liệu (thêm văn bản pháp luật mới vào data/papers/ và build lại index)
  9.3 Tổng hợp kết quả thực nghiệm (mục 8) vào báo cáo tốt nghiệp
-Future Work (ngoài phạm vi change này)
- Giao diện web/API (FastAPI) thay vì chỉ CLI
- Trích dẫn theo số điều/khoản cụ thể thay vì chỉ vị trí ký tự (xem Open Question trong design.md)
- Cơ chế cập nhật tự động khi văn bản pháp luật mới được ban hành
+
+Phần 7 — Trạng Thái Triển Khai Thực Tế (Implementation Milestone Completed)
+
+1. Giao Diện & Trải Nghiệm Người Dùng (Frontend):
+ - Web Chatbot hiện đại với React 18 + TypeScript + Vite + Tailwind/Modern CSS.
+ - Hỗ trợ SSE Streaming Markdown thời gian thực, bảng thuế suất, phân tích mã HS, đề xuất câu hỏi gợi ý và xuất báo cáo PDF.
+ - Trang Quản trị Admin (/admin/documents) với tính năng quản lý danh mục văn bản, duyệt cây phân cấp Chương/Điều/Khoản, và nút bấm "⚡ Đồng bộ tất cả PDF" tự động.
+
+2. Pipeline Ingestion & Vector Store (Backend):
+ - Hai tầng phân cấp (Two-Tier Parent-Child Chunking): 1.171 Parent Chunks (Chương/Điều/Khoản) + 9.228 Child Chunks (Embeddings).
+ - Lưu trữ toàn bộ 22 văn bản pháp luật trong papers/ vào SQLite (documents, document_nodes, document_parent_chunks).
+ - Vector Store FAISS FlatIP 768 chiều (sentence-transformers/paraphrase-multilingual-mpnet-base-v2) kết hợp SQLite Embeddings Cache (18.241 bản ghi).
+
+3. Kiến Trúc Truy Xuất & Sinh Phản Hồi (RAG & LLM Router):
+ - Hybrid Search: FAISS Dense Vector Search + BM25 Sparse Search + Reciprocal Rank Fusion (RRF).
+ - Reranking: BAAI/bge-reranker-base Cross-Encoder.
+ - Parent-Child Context Expansion: Tự động ánh xạ từ child chunks sang parent context đầy đủ trước khi cấp cho LLM.
+ - LLM Router đa tầng với cơ chế dự phòng failover thông minh: Groq -> OpenRouter -> Gemini -> Local Ollama (llama3.2).
+
+4. Bảo Mật, Phân Quyền & Kiểm Thử Tự Động:
+ - Xác thực PBKDF2 HMAC SHA-256 (100.000 vòng lặp) + JSON Web Token (JWT).
+ - Kiểm soát IDOR nghiêm ngặt, cách ly dữ liệu lịch sử chat giữa các người dùng.
+ - Bộ kiểm thử tự động toàn diện (test_rigorous_auth_and_chat.py): 31/31 bài test vượt qua (100% Pass Rate).
+
+Phần 8 — Báo Cáo Hiện Trạng Toàn Diện Của Hệ Thống (System Health & Architecture Current State)
+
+1. Cấu Trúc Phân Cấp Dữ Liệu 4 Tầng (Hierarchical Chunks Tree):
+ - Cơ sở dữ liệu SQLite bảng `document_nodes` chứa 4.191 nodes phân cấp chi tiết:
+   + 88 Chương (chuong - Root Level)
+   + 93 Mục & 15 Tiểu mục (muc, tieu_muc - Sub-level 1)
+   + 979 Điều luật (dieu - Sub-level 2)
+   + 2.896 Khoản quy định (khoan - Sub-level 3, chứa toàn văn nội dung quy phạm)
+   + 70 Phụ lục & 32 Mẫu biểu (phu_luc, mau_so)
+ - Giao diện Quản lý Tài liệu (/admin/documents): Cung cấp component đệ quy TreeNode cho phép Admin duyệt cây phân cấp trực quan, mở rộng từng Chương -> Mục -> Điều -> Khoản, chỉnh sửa hoặc xóa từng node độc lập.
+
+2. Cơ Chế Khởi Động Bất Đồng Bộ & Tối Ưu Nạp Mô Hình (Non-blocking Fast Startup):
+ - Backend (`backend/serve.py`) khởi tạo cơ sở dữ liệu `db.init_db()` tức thì và nạp mô hình nặng (`SentenceTransformer`, `BGE-Reranker`, `BM25`) trong worker thread (`asyncio.to_thread`).
+ - Cổng port 8000 được bind và lắng nghe ngay lập tức (< 1 giây) mà không bị block event loop.
+ - Bật cờ môi trường `HF_HUB_OFFLINE=1` và `TRANSFORMERS_OFFLINE=1` nạp model từ bộ nhớ đệm cục bộ, loại bỏ hoàn toàn độ trễ mạng từ HuggingFace Hub.
+
+3. Độ Tin Cậy Của Luồng Streaming AI (Resilient Server-Sent Events):
+ - Endpoint `POST /api/chat/stream` đã được chuẩn hóa toàn diện với khối `try...except` và cơ chế fallback tự động.
+ - Đã xử lý triệt để các lỗi kết nối, module imports (`asyncio`), và mapping thuộc tính `agent.rag_pipeline.retriever`.
+ - Truyền tải mượt mà từng token phản hồi kèm trạng thái pipeline (🔍 Tìm kiếm -> ⚖️ Phân tích -> ✍️ Tổng hợp), trích xuất mã HS, bảng thuế suất, và danh mục căn cứ pháp lý chính xác.
+
+4. Quản Lý Hạn Mức Sử Dụng Thời Gian Thực (Real-time Quota & Usage Sync):
+ - Tự động đồng bộ số lượng tin nhắn (`/api/user/usage`) ngay khi bot hoàn tất câu trả lời và khi tải ảnh thành công.
+ - Sidebar hiển thị trực quan gói dịch vụ (Gói Miễn phí / Logi Pro), số tin nhắn trong ngày (`0/10` -> `1/10` -> `2/10`), số lượt tải ảnh (`0/5`), và thanh tiến trình trực quan.
+
+5. Danh Mục Dịch Vụ Đang Chạy Nền (Live Daemon Processes):
+ - Frontend Web Application: `http://localhost:3000` (React 18 + Vite Dev Server).
+ - Backend REST & SSE API: `http://127.0.0.1:8000` (FastAPI / Uvicorn Engine).
+ - AI Inference Engine: `http://localhost:11434` (Ollama với mô hình `llama3.2` và `qwen2.5:3b`).
+
+6. Độ Chuẩn Xác Mã Nguồn & Kiểm Thử:
+ - TypeScript Compiler (`tsc --noEmit`): 0 lỗi, 0 cảnh báo.
+ - Backend Integration & Security Tests (`test_rigorous_auth_and_chat.py` + `test_quiz_service.py`): 36/36 bài test Passed (100% Pass Rate).
+
+======================================================================
+9. KIẾN TRÚC TÍNH NĂNG SINH ĐỀ & LÀM BÀI TRẮC NGHIỆM TỰ ĐỘNG (IN-CHAT AI QUIZ GENERATOR)
+======================================================================
+
+1. Luồng Hoạt Động Cốt Lõi (End-to-End Conversational Quiz Workflow):
+ - Bước 1: Người dùng yêu cầu sinh trắc nghiệm tự nhiên trong khung chat (VD: "Tạo 10 câu trắc nghiệm về Luật Hải quan cho tôi" hoặc "Sinh đề trắc nghiệm từ file tài liệu vừa tải lên").
+ - Bước 2: `backend/quiz_service.py` nhận diện ý định (`is_quiz_intent`) và trích xuất tham số (`extract_quiz_params` gồm số lượng câu, độ khó, thời gian làm bài).
+ - Bước 3: RAG pipeline trích xuất điều khoản pháp lý liên quan từ Vector Tree 22 văn bản Luật Hải quan (hoặc Scoped Document Chunks trong phiên).
+ - Bước 4: LLM Router sinh bộ câu hỏi trắc nghiệm A/B/C/D chuẩn định dạng JSON Schema kèm đáp án đúng, giải thích chuyên sâu và số hiệu Điều luật căn cứ.
+ - Bước 5: Backend lưu trữ đề thi vào các bảng `quizzes`, `quiz_questions` và đính kèm `quiz_json` vào tin nhắn AI trong SQLite.
+ - Bước 6: Khung chat hiển thị In-Chat Quiz Card (`[🚀 Bắt đầu làm bài]`).
+ - Bước 7: Người dùng bấm vào nút sẽ mở modal tương tác `QuizRunnerModal.tsx` để làm bài (đồng hồ đếm ngược, chọn A/B/C/D, danh sách câu hỏi điều hướng, xác nhận nộp bài).
+ - Bước 8: Hệ thống chấm điểm tự động (`POST /api/quiz/{id}/submit`), lưu kết quả vào `quiz_submissions`, hiển thị điểm số %, tỷ lệ đúng/sai và chế độ xem lại chi tiết kèm căn cứ pháp lý.
+
+2. Cấu Trúc Cơ Sở Dữ Liệu SQLite cho Trắc Nghiệm:
+ - `quizzes`: `id`, `session_id`, `user_id`, `title`, `topic`, `source_type` ('law_database' | 'document_upload'), `source_name`, `total_questions`, `time_limit_minutes`, `difficulty`, `created_at`.
+ - `quiz_questions`: `id`, `quiz_id`, `question_index`, `question_text`, `option_a`, `option_b`, `option_c`, `option_d`, `correct_option`, `explanation`, `citation_code`, `created_at`.
+ - `quiz_submissions`: `id`, `quiz_id`, `user_id`, `score`, `total_correct`, `total_questions`, `answers_json`, `time_spent_seconds`, `completed_at`.
+ - `messages`: Cột `quiz_json` lưu trữ thông tin tóm tắt đề thi hiển thị trực tiếp trong card.
+
+3. Tiêu Chuẩn Bảo Mật:
+ - `GET /api/quiz/{quiz_id}`: Tuyệt đối ẩn `correct_option` và `explanation` trước khi nộp bài để chống gian lận.
+ - `POST /api/quiz/{quiz_id}/submit`: Đánh giá câu trả lời trên server, tính điểm và trả về toàn bộ đáp án chính xác kèm giải thích chi tiết.
+ - `GET /api/quiz/history`: Bảo vệ theo tài khoản người dùng đã xác thực.

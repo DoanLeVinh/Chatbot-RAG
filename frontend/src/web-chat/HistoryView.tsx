@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getAuthHeaders } from '../shared/utils';
 import { ChatSession } from '../shared/types';
 
 interface HistoryViewProps {
@@ -66,6 +67,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeaders()
         },
       });
 
@@ -327,7 +329,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     Math.ceil(filteredSessions.length / 20) + 1;
 
                   const res = await fetch(
-                    `/api/sessions?page=${currentPage}&limit=20`
+                    `/api/sessions?page=${currentPage}&limit=20`,
+                    {
+                      headers: getAuthHeaders()
+                    }
                   );
 
                   if (res.ok) {

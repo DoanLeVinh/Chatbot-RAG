@@ -24,6 +24,7 @@ interface SidebarProps {
   onLogout?: () => void;
   width?: number;
   onCloseDesktop?: () => void;
+  onToggleCollapse?: () => void;
   userUsage?: import('../types').UserUsage | null;
   onUpgradeClick?: () => void;
 }
@@ -43,6 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   width = 280,
   onCloseDesktop,
+  onToggleCollapse,
   userUsage,
   onUpgradeClick,
 }) => {
@@ -99,17 +101,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onSelectSession(session.id);
           onCloseMobile();
         }}
-        className={`group rounded-xl px-3 py-2 flex items-center gap-2.5 cursor-pointer text-sm transition-all ${
+        className={`group rounded-xl px-3 py-2.5 flex items-center gap-3 cursor-pointer text-sm transition-all relative overflow-hidden ${
           isActive
-            ? 'bg-blue-200 text-blue-600 font-semibold shadow-xs'
-            : 'text-slate-600 hover:bg-blue-100 hover:text-blue-600'
+            ? 'bg-blue-50/80 text-blue-700 font-medium'
+            : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
         }`}
       >
+        {isActive && (
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-1/2 bg-blue-500 rounded-r-full" />
+        )}
         {/* Icon */}
-        <span className="shrink-0 flex items-center justify-center">
-          {icon === 'history' && <ClockCounterClockwise size={20} weight="regular" />}
-          {icon === 'calendar_today' && <Calendar size={20} weight="regular" />}
-          {icon === 'date_range' && <CalendarBlank size={20} weight="regular" />}
+        <span className="shrink-0 flex items-center justify-center opacity-70 group-hover:opacity-100 transition-opacity">
+          {icon === 'history' && <ClockCounterClockwise size={18} weight="duotone" />}
+          {icon === 'calendar_today' && <Calendar size={18} weight="duotone" />}
+          {icon === 'date_range' && <CalendarBlank size={18} weight="duotone" />}
         </span>
 
         {/* Title */}
@@ -133,21 +138,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-surface-bright p-4 border-r border-slate-200/60 w-full">
+    <div className="flex flex-col h-full bg-[#fbfcfd] p-4 border-r border-slate-200/60 w-full shadow-[2px_0_15px_-3px_rgba(0,0,0,0.02)] relative z-20">
       {/* Header */}
-      <div className="flex items-center justify-between mb-5 px-1 pt-1">
+      <div className="flex items-center justify-between mb-6 px-1 pt-1">
         <div
           onClick={() => onNavigateScreen('landing')}
-          className="cursor-pointer group flex items-center gap-2"
+          className="cursor-pointer group flex items-center gap-3"
         >
           <LogiChatLogo iconOnly size="sm" />
 
-          <div>
-            <h1 className="font-bold text-blue-600 text-base leading-tight group-hover:text-blue-700 transition-colors">
-              LogiChat History
+          <div className="flex flex-col justify-center">
+            <h1 className="font-extrabold text-slate-800 text-[15px] tracking-tight leading-none group-hover:text-blue-600 transition-colors">
+              LogiChat
             </h1>
-
-            <p className="text-xs text-slate-600">
+            <p className="text-[11px] font-medium text-slate-500 tracking-wide mt-1 uppercase">
               Legal Assistant
             </p>
           </div>
@@ -155,9 +159,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="flex items-center gap-1">
           {/* Desktop close button */}
-          {onCloseDesktop && (
+          {(onCloseDesktop || onToggleCollapse) && (
             <button
-              onClick={onCloseDesktop}
+              onClick={onCloseDesktop || onToggleCollapse}
               className="hidden md:flex text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg p-1.5 transition-colors"
               title="Đóng thanh điều hướng"
             >
@@ -175,50 +179,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* New Chat */}
-      <div className="mb-4">
-        <RippleButton
-          variant="primary"
+      <div className="mb-6">
+        <button
           onClick={() => {
             onNewChat();
             onCloseMobile();
           }}
-          className="w-full text-sm font-semibold py-2 px-3 rounded-xl flex items-center justify-center gap-2 shadow-[0_8px_20px_-8px_rgba(37,99,235,0.4)] transition-all"
+          className="relative w-full group overflow-hidden rounded-xl bg-white border border-slate-200/80 shadow-sm hover:shadow-md transition-all duration-300"
         >
-          <Plus size={18} weight="bold" />
-          Tạo Cuộc Hỏi Đáp Mới
-        </RippleButton>
+          {/* Subtle gradient hover background */}
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          
+          <div className="relative flex items-center justify-center gap-2 py-2.5 px-3 text-slate-700 group-hover:text-blue-600 transition-colors duration-300">
+            <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
+              <Plus size={14} weight="bold" />
+            </div>
+            <span className="text-[13px] font-semibold tracking-wide">Tạo Cuộc Hỏi Đáp Mới</span>
+          </div>
+        </button>
       </div>
 
       {/* Navigation & Session Groups */}
       <div className="flex-1 overflow-y-auto pr-1 space-y-4">
 
-        {/* History */}
-        <div>
-          <button
-            onClick={() => {
-              onNavigateScreen('history');
-              onCloseMobile();
-            }}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeScreen === 'history'
-                ? 'bg-blue-200 text-blue-600'
-                : 'text-slate-600 hover:bg-blue-100 hover:text-blue-600'
-            }`}
-          >
-            <ClockCounterClockwise size={20} weight="regular" />
-
-            <span className="truncate">
-              Lịch sử hội thoại
-            </span>
-          </button>
+        {/* History Header */}
+        <div className="flex items-center gap-2 px-3 py-1 mb-2">
+          <ClockCounterClockwise size={16} className="text-slate-400" weight="bold" />
+          <span className="text-[12px] font-bold text-slate-800 tracking-wider">
+            LỊCH SỬ HỘI THOẠI
+          </span>
         </div>
 
         {/* TODAY */}
         {todaySessions.length > 0 && (
           <div>
-            <h2 className="text-[11px] font-semibold text-slate-600 px-3 mb-1.5 uppercase tracking-wider">
-              Today
+            <h2 className="text-[10px] font-bold text-slate-400 px-3 mb-2 mt-4 uppercase tracking-[0.15em]">
+              Hôm nay
             </h2>
 
             <ul className="space-y-1">
@@ -232,8 +228,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* YESTERDAY */}
         {yesterdaySessions.length > 0 && (
           <div>
-            <h2 className="text-[11px] font-semibold text-slate-600 px-3 mb-1.5 uppercase tracking-wider">
-              Yesterday
+            <h2 className="text-[10px] font-bold text-slate-400 px-3 mb-2 mt-4 uppercase tracking-[0.15em]">
+              Hôm qua
             </h2>
 
             <ul className="space-y-1">
@@ -247,8 +243,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* LAST 7 DAYS */}
         {last7DaysSessions.length > 0 && (
           <div>
-            <h2 className="text-[11px] font-semibold text-slate-600 px-3 mb-1.5 uppercase tracking-wider">
-              Last 7 Days
+            <h2 className="text-[10px] font-bold text-slate-400 px-3 mb-2 mt-4 uppercase tracking-[0.15em]">
+              7 ngày trước
             </h2>
 
             <ul className="space-y-1">
@@ -315,10 +311,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {currentUser ? (
           <div className="flex items-center justify-between px-1 py-1">
             <div className="flex items-center gap-2 overflow-hidden px-2">
-              <div className="w-7 h-7 shrink-0 rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex items-center justify-center text-xs font-bold">
+              <div className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 text-slate-600 border border-slate-300/50 flex items-center justify-center text-xs font-bold shadow-sm">
                 {currentUser.fullName.charAt(0).toUpperCase()}
               </div>
-              <span className="text-sm font-semibold text-slate-700 truncate max-w-[100px]" title={currentUser.fullName}>
+              <span className="text-sm font-semibold text-slate-800 truncate max-w-[100px]" title={currentUser.fullName}>
                 {currentUser.fullName}
               </span>
             </div>
