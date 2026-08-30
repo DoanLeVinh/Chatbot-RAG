@@ -165,7 +165,7 @@ class LLMRouter:
             for model_name in self.openrouter_models:
                 payload = {
                     "model": model_name,
-                    "max_tokens": min(max_tokens, 1000), # Tránh lỗi 402 khi credit quá thấp
+                    "max_tokens": min(max_tokens, 3500),
                     "temperature": temperature,
                     "frequency_penalty": 0.2,
                     "presence_penalty": 0.2,
@@ -374,17 +374,17 @@ class LLMRouter:
             pass  # Ollama may not be responding or endpoint busy
 
         url = f"{self.ollama_host}/api/chat"
-        # Prioritize qwen2.5:3b if available
+        # Prioritize primary model
         sorted_models = sorted(candidate_models, key=lambda m: 0 if 'qwen' in m.lower() else 1)
-        for model_name in sorted_models:
+        for model_name in sorted_models[:1]:
             payload = {
                 "model": model_name,
                 "messages": self._build_messages(system_prompt, user_prompt, chat_history),
                 "stream": False,
                 "options": {
                     "temperature": temperature,
-                    "num_predict": min(max_tokens, 1200),
-                    "num_ctx": 2048,
+                    "num_predict": min(max_tokens, 3500),
+                    "num_ctx": 4096,
                     "num_thread": min(8, os.cpu_count() or 4),
                     "repeat_penalty": 1.1,
                     "top_p": 0.9
@@ -397,14 +397,14 @@ class LLMRouter:
                 method="POST"
             )
             try:
-                with urllib.request.urlopen(req, timeout=45) as resp:
+                with urllib.request.urlopen(req, timeout=30) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
                     msg = resp_data.get("message", {}).get("content", "")
                     if msg and msg.strip():
                         return msg.strip(), f"ollama:{model_name}"
             except Exception as exc:
                 logger.warning(f"Ollama [{model_name}] Error: {exc}")
-                continue
+                break
 
         return None
 

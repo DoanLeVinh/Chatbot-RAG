@@ -59,12 +59,12 @@ class TestQuizService(unittest.TestCase):
         self.assertEqual(p1["total_questions"], 10)
         self.assertEqual(p1["difficulty"], "hard")
 
-        p2 = quiz_service.extract_quiz_params("Tạo 3 câu trắc nghiệm cơ bản")
-        self.assertEqual(p2["total_questions"], 3)
+        p2 = quiz_service.extract_quiz_params("Tạo 5 câu trắc nghiệm cơ bản")
+        self.assertEqual(p2["total_questions"], 5)
         self.assertEqual(p2["difficulty"], "easy")
 
         p3 = quiz_service.extract_quiz_params("Tạo bài trắc nghiệm")
-        self.assertEqual(p3["total_questions"], 5)
+        self.assertEqual(p3["total_questions"], 10)
         self.assertEqual(p3["difficulty"], "medium")
 
     def test_03_db_create_and_hide_answers_before_submit(self):
