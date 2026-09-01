@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ChatSession, ChatMessage } from '../shared/types';
+import { ChatSession, ChatMessage, TaxCalculationResult } from '../shared/types';
 import { RippleButton } from '../shared/components/RippleButton';
 import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor, FileText, ThumbsUp, ThumbsDown, Copy, SpeakerHigh, Check } from '@phosphor-icons/react';
 import { Zap, BrainCircuit, BookOpenCheck, ArrowRight } from 'lucide-react';
+import { InChatTaxCard } from '../features/tax/InChatTaxCard';
 
 const getOrderedCitations = (msg: ChatMessage) => {
   if (!msg.citations || msg.citations.length === 0) return { processedText: msg.text, orderedCitations: [] };
@@ -57,6 +58,7 @@ interface ChatViewProps {
   userPlan?: 'free' | 'pro';
   onUpgradeClick?: () => void;
   onStartQuiz?: (quizId: string) => void;
+  onOpenTaxModal?: (taxData: TaxCalculationResult) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -73,6 +75,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   userPlan = 'free',
   onUpgradeClick,
   onStartQuiz,
+  onOpenTaxModal,
 }) => {
   const [inputText, setInputText] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
@@ -308,13 +311,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     {isGenerating && msg.text === '' ? (
                       <div className="py-2 space-y-2">
                         {(() => {
+                          const isTax = msg.currentStage && (
+                            msg.currentStage.includes('mã HS') ||
+                            msg.currentStage.includes('biểu thuế') ||
+                            msg.currentStage.includes('tính thuế')
+                          );
                           const isQuiz = msg.currentStage && (
                             msg.currentStage.includes('trắc nghiệm') || 
                             msg.currentStage.includes('biên soạn') ||
                             msg.currentStage.includes('tổng hợp kiến thức')
                           );
 
-                          const steps = isQuiz ? [
+                          const steps = isTax ? [
+                            { id: 't1', icon: '🔍', label: 'Tra cứu mã HS & Phân tích biểu thuế', prefix: '🔍' },
+                            { id: 't2', icon: '🧮', label: 'Lập bảng tính thuế XNK chi tiết', prefix: '🧮' },
+                          ] : isQuiz ? [
                             { id: 'q1', icon: '🔍', label: 'Tổng hợp kiến thức & Căn cứ pháp lý', prefix: '🔍' },
                             { id: 'q2', icon: '📝', label: 'Biên soạn bộ câu hỏi trắc nghiệm', prefix: '📝' },
                           ] : [
@@ -542,6 +553,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         </button>
                       </div>
                     </div>
+                  )}
+
+                  {/* Interactive In-Chat Customs Tax Estimator Card */}
+                  {msg.tax && (
+                    <InChatTaxCard 
+                      initialTax={msg.tax} 
+                      onOpenDetailedModal={onOpenTaxModal} 
+                    />
                   )}
 
                   {/* Download Summary PDF Button */}

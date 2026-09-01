@@ -235,11 +235,34 @@ def init_db():
             );
         """)
 
-        # Migration: Ensure 'quiz_json' column exists in messages
+        # Migration: Ensure 'quiz_json' and 'tax_json' columns exist in messages
         cursor.execute("PRAGMA table_info(messages);")
         msg_cols = [col["name"] for col in cursor.fetchall()]
         if "quiz_json" not in msg_cols:
             cursor.execute("ALTER TABLE messages ADD COLUMN quiz_json TEXT;")
+        if "tax_json" not in msg_cols:
+            cursor.execute("ALTER TABLE messages ADD COLUMN tax_json TEXT;")
+
+        # Table: tax_calculations
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tax_calculations (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                user_id TEXT,
+                product_name TEXT NOT NULL,
+                hs_code TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                unit_price REAL NOT NULL,
+                currency TEXT NOT NULL,
+                exchange_rate REAL NOT NULL,
+                co_form TEXT DEFAULT 'MFN',
+                total_tax_vnd REAL NOT NULL,
+                breakdown_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        """)
 
         # Table: quizzes
         cursor.execute("""
@@ -654,6 +677,7 @@ def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Option
                 "citations": citations,
                 "summaryPdf": json.loads(m["summary_pdf_json"]) if m["summary_pdf_json"] else None,
                 "quiz": json.loads(m["quiz_json"]) if ("quiz_json" in m.keys() and m["quiz_json"]) else None,
+                "tax": json.loads(m["tax_json"]) if ("tax_json" in m.keys() and m["tax_json"]) else None,
             })
 
         cursor.execute("SELECT * FROM attachments WHERE session_id = ?;", (session_id,))
@@ -695,7 +719,8 @@ def delete_session(session_id: str, user_id: Optional[str] = None) -> bool:
 
 def add_message(session_id: str, sender: str, text: str, timestamp: str,
                 hs_code: str = None, taxes: list = None, inspections: dict = None,
-                citations: list = None, summary_pdf: dict = None, quiz: dict = None, user_id: str = None) -> str:
+                citations: list = None, summary_pdf: dict = None, quiz: dict = None,
+                tax: dict = None, user_id: str = None) -> str:
     """Add a new chat message to SQLite database with auto-session recovery."""
     msg_id = f"{sender}-{uuid.uuid4().hex[:8]}"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -705,6 +730,7 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
     citations_str = json.dumps(citations, ensure_ascii=False) if citations else None
     pdf_str = json.dumps(summary_pdf, ensure_ascii=False) if summary_pdf else None
     quiz_str = json.dumps(quiz, ensure_ascii=False) if quiz else None
+    tax_str = json.dumps(tax, ensure_ascii=False) if tax else None
 
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -724,9 +750,9 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
             cursor.execute("UPDATE sessions SET user_id = ? WHERE id = ?;", (user_id, session_id))
 
         cursor.execute(
-            """INSERT INTO messages (id, session_id, sender, text, timestamp, hs_code, taxes_json, inspections_json, citations_json, summary_pdf_json, quiz_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
-            (msg_id, session_id, sender, text, timestamp, hs_code, taxes_str, inspections_str, citations_str, pdf_str, quiz_str)
+            """INSERT INTO messages (id, session_id, sender, text, timestamp, hs_code, taxes_json, inspections_json, citations_json, summary_pdf_json, quiz_json, tax_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+            (msg_id, session_id, sender, text, timestamp, hs_code, taxes_str, inspections_str, citations_str, pdf_str, quiz_str, tax_str)
         )
         
         if sender == 'user':
@@ -943,6 +969,69 @@ def get_user_quiz_history(user_id: str, limit: int = 20) -> list:
                 "totalQuestions": r["total_questions"],
                 "timeSpentSeconds": r["time_spent_seconds"],
                 "completedAt": r["completed_at"]
+            }
+            for r in rows
+        ]
+
+def save_tax_calculation(session_id: Optional[str], user_id: Optional[str], product_name: str,
+                         hs_code: str, quantity: float, unit_price: float, currency: str,
+                         exchange_rate: float, co_form: str, total_tax_vnd: float,
+                         breakdown: dict) -> str:
+    """Lưu trữ kết quả tính thuế XNK vào cơ sở dữ liệu SQLite."""
+    calc_id = f"tax-{uuid.uuid4().hex[:10]}"
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        user_id = _ensure_user_exists_cursor(cursor, user_id)
+
+        effective_session_id = None
+        if session_id:
+            cursor.execute("SELECT id FROM sessions WHERE id = ?;", (session_id,))
+            s_row = cursor.fetchone()
+            if s_row:
+                effective_session_id = session_id
+            else:
+                try:
+                    cursor.execute(
+                        """INSERT INTO sessions (id, user_id, title, category_tag, group_name, preview_text, created_at, updated_at)
+                           VALUES (?, ?, 'Hội thoại tư vấn mới', 'Tư vấn Hải quan', 'TODAY', ?, ?, ?);""",
+                        (session_id, user_id, product_name[:100], now_str, now_str)
+                    )
+                    effective_session_id = session_id
+                except Exception:
+                    effective_session_id = None
+
+        cursor.execute("""
+            INSERT INTO tax_calculations (id, session_id, user_id, product_name, hs_code, quantity, unit_price, currency, exchange_rate, co_form, total_tax_vnd, breakdown_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (calc_id, effective_session_id, user_id, product_name, hs_code, quantity, unit_price, currency, exchange_rate, co_form, total_tax_vnd, json.dumps(breakdown, ensure_ascii=False), now_str))
+        conn.commit()
+        return calc_id
+
+def get_user_tax_history(user_id: str, limit: int = 20) -> list:
+    """Lấy danh sách các lần tính toán thuế của người dùng."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM tax_calculations
+            WHERE user_id = ?
+            ORDER BY created_at DESC LIMIT ?;
+        """, (user_id, limit))
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "sessionId": r["session_id"],
+                "productName": r["product_name"],
+                "hsCode": r["hs_code"],
+                "quantity": r["quantity"],
+                "unitPrice": r["unit_price"],
+                "currency": r["currency"],
+                "exchangeRate": r["exchange_rate"],
+                "coForm": r["co_form"],
+                "totalTaxVnd": r["total_tax_vnd"],
+                "breakdown": json.loads(r["breakdown_json"]) if r["breakdown_json"] else {},
+                "createdAt": r["created_at"]
             }
             for r in rows
         ]

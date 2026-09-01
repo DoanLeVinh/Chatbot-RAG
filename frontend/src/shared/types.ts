@@ -26,6 +26,34 @@ export interface TaxBreakdown {
   citationCode?: string;
 }
 
+export interface TaxCalculationResult {
+  hsCode: string;
+  productName: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  currency: string;
+  exchangeRate: number;
+  cifForeign: number;
+  vNk: number;
+  coForm: string;
+  importTaxRate: number;
+  importTaxLabel: string;
+  tNk: number;
+  ttdbRate: number;
+  tTtdb: number;
+  bvmtRate: number;
+  tBvmt: number;
+  vVat: number;
+  vatRate: number;
+  tVat: number;
+  totalTax: number;
+  girRule?: string;
+  importConditions?: string;
+  legalReference?: string;
+  availableFta?: string[];
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'ai';
@@ -49,6 +77,7 @@ export interface ChatMessage {
   currentStage?: string;
   quiz?: QuizSummary;
   attachment?: Attachment;
+  tax?: TaxCalculationResult;
 }
 
 export interface QuizSummary {

@@ -478,3 +478,38 @@ Phần 8 — Báo Cáo Hiện Trạng Toàn Diện Của Hệ Thống (System He
  - `GET /api/quiz/{quiz_id}`: Tuyệt đối ẩn `correct_option` và `explanation` trước khi nộp bài để chống gian lận.
  - `POST /api/quiz/{quiz_id}/submit`: Đánh giá câu trả lời trên server, tính điểm và trả về toàn bộ đáp án chính xác kèm giải thích chi tiết.
  - `GET /api/quiz/history`: Bảo vệ theo tài khoản người dùng đã xác thực.
+
+======================================================================
+10. KIẾN TRÚC CÔNG CỤ TRA CỨU MÃ HS & TÍNH THUẾ XUẤT NHẬP KHẨU TỰ ĐỘNG (HS CODE & TAX ESTIMATOR)
+======================================================================
+
+1. Mục Tiêu & Nghiệp Vụ Thực Hiện:
+ - Hiện thực hóa trực tiếp Nhóm 1 (Phân loại hàng hóa & Mã HS) và Nhóm 3 (Thuế & Các khoản phải nộp).
+ - Cung cấp khả năng tự động nhận diện mặt hàng, gợi ý mã HS 8 số kèm căn cứ phân loại theo 6 Quy tắc tổng quát giải thích phân loại hàng hóa (GIR).
+ - Tra cứu mức thuế suất tương ứng: Thuế Thông thường, Thuế Ưu đãi (MFN), Thuế Ưu đãi Đặc biệt theo các Hiệp định FTA (ACFTA Form E, ATIGA Form D, VKFTA Form VK, AKFTA Form AK, EVFTA Form EUR.1, CPTPP, VJEPA Form VJ, AANZFTA Form AANZ), Thuế Tiêu thụ đặc biệt (TTĐB), Thuế Bảo vệ môi trường (BVMT), và Thuế Giá trị gia tăng (VAT 8% / 10%).
+ - Tự động lập bảng tính toán số tiền thuế dự kiến phải nộp (VNĐ) theo quy định của Luật Thuế Xuất khẩu, thuế Nhập khẩu số 107/2016/QH13 và Thông tư 38/2015/TT-BTC.
+
+2. Luồng Hoạt Động Cốt Lõi (In-Chat Tax Estimator Workflow):
+ - Bước 1: Người dùng nhập câu hỏi tự nhiên (VD: "Tính thuế nhập khẩu 100 nồi chiên không dầu từ Trung Quốc có C/O Form E đơn giá 35 USD").
+ - Bước 2: `backend/tariff_service.py` nhận diện ý định (`is_tax_intent`), trích xuất thông số mặt hàng, số lượng, đơn giá, ngoại tệ, loại C/O và xuất xứ (`extract_tax_params`).
+ - Bước 3: Thuật toán tra cứu dữ liệu biểu thuế chuẩn (`backend/data/tariff_database.json`) để tìm mã HS và các mức thuế suất áp dụng (`match_hs_and_tariff`).
+ - Bước 4: Engine tính thuế số học chuẩn xác (`calculate_customs_tax`) thực hiện tính toán chi tiết:
+     * Trị giá tính thuế NK: V_NK = Số lượng × Đơn giá × Tỷ giá
+     * Tiền Thuế Nhập Khẩu: T_NK = V_NK × Thuế suất NK (%)
+     * Tiền Thuế TTĐB: T_TTDB = (V_NK + T_NK) × Thuế suất TTĐB (%)
+     * Tiền Thuế BVMT: T_BVMT = Số lượng × Mức thuế BVMT tuyệt đối
+     * Trị giá tính VAT: V_VAT = V_NK + T_NK + T_TTDB + T_BVMT
+     * Tiền Thuế GTGT: T_VAT = V_VAT × Thuế suất GTGT (%)
+     * TỔNG TIỀN THUẾ = T_NK + T_TTDB + T_BVMT + T_VAT
+ - Bước 5: SSE stream `POST /api/chat/stream` phát các sự kiện cập nhật tiến trình (`🔍 Tra cứu mã HS & Biểu thuế...` -> `🧮 Lập bảng tính thuế XNK chi tiết...`) và trả về token văn bản giải thích kèm payload có cấu trúc `tax`.
+ - Bước 6: Khung chat hiển thị Widget tương tác `InChatTaxCard.tsx` cho phép người dùng trực tiếp sửa số lượng, đơn giá, loại tiền tệ, chọn Form C/O và máy tính tự động tính lại tức thì qua REST endpoint `POST /api/tariff/calculate`.
+ - Bước 7: Người dùng có thể nhấn [Xem Bảng Kê Chi Tiết] để mở modal `TaxEstimatorModal.tsx` xem toàn bộ công thức chi tiết, căn cứ phân loại GIR, cảnh báo kiểm tra chuyên ngành và in bản dự toán.
+
+3. Cấu Trúc Cơ Sở Dữ Liệu SQLite:
+ - `tax_calculations`: `id`, `session_id`, `user_id`, `product_name`, `hs_code`, `quantity`, `unit_price`, `currency`, `exchange_rate`, `co_form`, `total_tax_vnd`, `breakdown_json`, `created_at`.
+ - `messages`: Cột `tax_json` lưu trữ thông tin tóm tắt bảng tính thuế hiển thị trong thẻ chat.
+
+4. REST & SSE Endpoints:
+ - `POST /api/tariff/calculate`: Tính toán lại bảng thuế theo thời gian thực khi thay đổi tham số.
+ - `GET /api/tariff/search`: Tìm kiếm mã HS, tên hàng hóa và tỷ giá ngoại tệ.
+ - `GET /api/tariff/history`: Lấy lịch sử tính thuế của người dùng đã xác thực.

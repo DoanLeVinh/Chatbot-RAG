@@ -342,6 +342,15 @@ class PdfExportIn(BaseModel):
     taxes: Optional[list] = None
     citations: Optional[list] = None
 
+class TaxCalcIn(BaseModel):
+    hsCode: Optional[str] = None
+    productName: Optional[str] = None
+    quantity: float = 100.0
+    unitPrice: float = 50.0
+    currency: str = "USD"
+    coForm: str = "MFN"
+    customExchangeRate: Optional[float] = None
+
 
 # ─── Startup event ──────────────────────────────────────────────────
 
@@ -569,6 +578,65 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
                         )
                     except Exception as db_err:
                         print(f"[Warning] Failed to persist quiz message to SQLite: {db_err}")
+
+                yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
+                return
+
+            import tariff_service
+            if tariff_service.is_tax_intent(req.prompt):
+                yield f"data: {json.dumps({'stage': '🔍 Đang tra cứu mã HS & phân tích biểu thuế...'}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0)
+
+                yield f"data: {json.dumps({'stage': '🧮 Đang lập bảng tính thuế XNK chi tiết...'}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0)
+
+                loop = asyncio.get_event_loop()
+                tax_future = loop.run_in_executor(
+                    None,
+                    tariff_service.generate_tax_estimation,
+                    req.prompt,
+                    req.sessionId,
+                    effective_user_id,
+                    req.aiModel
+                )
+
+                while not tax_future.done():
+                    yield f"data: {json.dumps({'stage': '🧮 Đang lập bảng tính thuế XNK chi tiết...'}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(1.0)
+
+                reply_text, tax_summary = await tax_future
+
+                # Stream out reply_text tokens smoothly
+                words = reply_text.split(" ")
+                for i, w in enumerate(words):
+                    chunk_token = w + (" " if i < len(words) - 1 else "")
+                    yield f"data: {json.dumps({'token': chunk_token}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.01)
+
+                final_payload = {
+                    "done": True,
+                    "reply": reply_text,
+                    "provider": "Customs Tariff & Tax Estimator",
+                    "hsCode": tax_summary.get("hsCode"),
+                    "taxes": None,
+                    "inspections": None,
+                    "citations": None,
+                    "summaryPdf": None,
+                    "quiz": None,
+                    "tax": tax_summary
+                }
+
+                if req.sessionId:
+                    try:
+                        timestamp = datetime.now().strftime('%H:%M')
+                        db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
+                        db.add_message(
+                            req.sessionId, 'ai', reply_text, timestamp,
+                            hs_code=tax_summary.get("hsCode"),
+                            tax=tax_summary, user_id=effective_user_id
+                        )
+                    except Exception as db_err:
+                        print(f"[Warning] Failed to persist tax message to SQLite: {db_err}")
 
                 yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
                 return
@@ -1816,6 +1884,64 @@ async def api_submit_quiz_answers(
     if not result:
         raise HTTPException(status_code=404, detail="Bài trắc nghiệm không tồn tại hoặc đã bị xóa.")
     return JSONResponse(result)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TARIFF & CUSTOMS TAX ESTIMATOR ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════
+
+@app.post('/api/tariff/calculate')
+async def api_calculate_tariff(req: TaxCalcIn):
+    import tariff_service
+    db_data = tariff_service.load_tariff_db()
+    commodity = None
+    if req.hsCode:
+        for c in db_data.get("commodities", []):
+            if c["hs_code"] == req.hsCode or c["hs_code"].replace(".", "") == req.hsCode.replace(".", ""):
+                commodity = c
+                break
+    if not commodity and req.productName:
+        commodity = tariff_service.match_hs_and_tariff(req.productName, db_data)
+    if not commodity:
+        commodity = tariff_service.match_hs_and_tariff(req.hsCode or "hàng hóa", db_data)
+    
+    result = tariff_service.calculate_customs_tax(
+        quantity=req.quantity,
+        unit_price=req.unitPrice,
+        currency=req.currency,
+        commodity=commodity,
+        co_form=req.coForm,
+        custom_exchange_rate=req.customExchangeRate
+    )
+    return JSONResponse(result)
+
+@app.get('/api/tariff/search')
+async def api_search_tariff(q: str = ""):
+    import tariff_service
+    db_data = tariff_service.load_tariff_db()
+    commodities = db_data.get("commodities", [])
+    if not q:
+        return JSONResponse({"results": commodities, "exchangeRates": db_data.get("exchange_rates", {})})
+    lower = q.lower()
+    matched = []
+    for c in commodities:
+        if (lower in c["hs_code"].lower() or 
+            lower in c["name_vi"].lower() or 
+            any(kw in lower for kw in c.get("keywords", []))):
+            matched.append(c)
+    return JSONResponse({"results": matched, "exchangeRates": db_data.get("exchange_rates", {})})
+
+@app.get('/api/tariff/history')
+async def api_get_tax_history(
+    limit: int = 20,
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+    user_id: Optional[str] = None
+):
+    effective_user_id = resolve_effective_user_id(user_id, current_user)
+    if not effective_user_id:
+        return JSONResponse({"history": []})
+    history = db.get_user_tax_history(effective_user_id, limit=limit)
+    return JSONResponse({"history": history})
 
 
 # ═══════════════════════════════════════════════════════════════════

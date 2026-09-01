@@ -16,6 +16,8 @@ import { WaterRippleMouse } from '../shared/components/WaterRippleMouse';
 import { UpgradeModal } from './UpgradeModal';
 import { PricingPage } from '../pages/PricingPage';
 import { QuizRunnerModal } from '../features/quiz/QuizRunnerModal';
+import { TaxEstimatorModal } from '../features/tax/TaxEstimatorModal';
+import { TaxCalculationResult } from '../shared/types';
 
 const createDefaultBlankSession = (): ChatSession => ({
   id: `session-${Date.now()}`,
@@ -72,6 +74,8 @@ export default function App() {
   const [isPricingPageOpen, setIsPricingPageOpen] = useState(false);
   const [activeQuizId, setActiveQuizId] = useState<string | null>(null);
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
+  const [taxModalData, setTaxModalData] = useState<TaxCalculationResult | null>(null);
+  const [isTaxModalOpen, setIsTaxModalOpen] = useState(false);
 
   // Modals state
   const [authModal, setAuthModal] = useState<{
@@ -778,6 +782,10 @@ export default function App() {
                     setActiveQuizId(quizId);
                     setIsQuizModalOpen(true);
                   }}
+                  onOpenTaxModal={(data) => {
+                    setTaxModalData(data);
+                    setIsTaxModalOpen(true);
+                  }}
                 />
               ) : (
                 <HistoryView
@@ -828,6 +836,15 @@ export default function App() {
           }}
           userId={currentUser?.id}
           getAuthHeaders={getAuthHeaders}
+        />
+
+        <TaxEstimatorModal
+          isOpen={isTaxModalOpen}
+          taxData={taxModalData}
+          onClose={() => {
+            setIsTaxModalOpen(false);
+            setTaxModalData(null);
+          }}
         />
 
         <AuthModal
