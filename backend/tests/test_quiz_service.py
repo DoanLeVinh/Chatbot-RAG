@@ -186,5 +186,50 @@ class TestQuizService(unittest.TestCase):
         self.assertIn("history", data)
         self.assertGreaterEqual(len(data["history"]), 1)
 
+    def test_06_smart_scoped_nlp_extractor_and_diversity(self):
+        """Kiểm tra bộ lọc rác hành chính và tính đa dạng của câu hỏi từ tài liệu Scoped PDF."""
+        # Giả lập các đoạn văn bản từ Nghị định về phòng vệ thương mại có lẫn rác hành chính
+        mock_scoped_chunks = [
+            {"text": "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM\nĐộc lập - Tự do - Hạnh phúc\nSố: 86/2025/NĐ-CP\nHà Nội, ngày 11 tháng 04 năm 2025"},
+            {"text": "Điều 1. Phạm vi điều chỉnh\nNghị định này quy định chi tiết về các biện pháp phòng vệ thương mại, căn cứ xác định thiệt hại của ngành sản xuất trong nước."},
+            {"text": "Điều 4. Xác định ngành sản xuất trong nước\nNgành sản xuất trong nước được xác định bao gồm các nhà sản xuất hàng hóa tương tự trong phạm vi lãnh thổ Việt Nam chiếm tỷ lệ chủ yếu trong tổng sản lượng."},
+            {"text": "Điều 5. Nghĩa vụ cung cấp thông tin\nCác bên liên quan trong vụ việc điều tra có trách nhiệm cung cấp đầy đủ thông tin, chứng cứ chính xác cho Cơ quan điều tra trong thời hạn quy định."},
+            {"text": "Điều 8. Thẩm quyền quyết định\nBộ trưởng Bộ Công Thương có thẩm quyền quyết định việc áp dụng hoặc bãi bỏ biện pháp phòng vệ thương mại tạm thời căn cứ vào kết luận sơ bộ của Cơ quan điều tra."},
+            {"text": "Điều 10. Thời hạn điều tra\nThời hạn điều tra áp dụng biện pháp tự vệ là 12 tháng kể từ ngày có quyết định điều tra, trường hợp đặc biệt có thể gia hạn nhưng không quá 06 tháng."},
+            {"text": "Trang 1/15\nMục lục tài liệu hướng dẫn"}
+        ]
+
+        questions = quiz_service._generate_rich_fallback_questions(
+            source_name="Nghị định 86/2025/NĐ-CP",
+            diff="medium",
+            num_q=10,
+            scoped_chunks=mock_scoped_chunks
+        )
+
+        self.assertGreaterEqual(len(questions), 10, "Phải sinh ra ít nhất 10 câu hỏi")
+
+        # 1. Kiểm tra không có câu hỏi nào chọn đáp án đúng là rác hành chính hoặc Quốc hiệu
+        for q in questions:
+            correct_ans = q["options"][q["correct_option"]]
+            self.assertFalse(quiz_service._is_administrative_or_noise(correct_ans), f"Đáp án không được là rác hành chính: '{correct_ans}'")
+            self.assertNotIn("CỘNG HÒA XÃ HỘI", correct_ans.upper())
+            self.assertNotIn("ĐỘC LẬP - TỰ DO", correct_ans.upper())
+            self.assertNotEqual(correct_ans.strip(), "Điều 1. Phạm vi điều chỉnh")
+
+        # 2. Kiểm tra tính đa dạng của mẫu câu hỏi (ít nhất 2 mẫu khác nhau)
+        question_texts = [q["question"] for q in questions]
+        unique_questions = set(question_texts)
+        self.assertGreaterEqual(len(unique_questions), 5, "Các câu hỏi phải có nội dung và cấu trúc đa dạng")
+
+        # 3. Kiểm tra các phương án nhiễu không bị lặp lại 3 câu cứng nhắc
+        distractor_signatures = []
+        for q in questions:
+            wrong_opts = tuple(sorted([v for k, v in q["options"].items() if k != q["correct_option"]]))
+            distractor_signatures.append(wrong_opts)
+
+        # Đảm bảo không có 2 câu hỏi liên tiếp có bộ phương án nhiễu trùng hệt nhau
+        for i in range(len(distractor_signatures) - 1):
+            self.assertNotEqual(distractor_signatures[i], distractor_signatures[i+1], f"Bộ phương án nhiễu ở câu {i+1} và câu {i+2} không được trùng lặp y hệt")
+
 if __name__ == '__main__':
     unittest.main()

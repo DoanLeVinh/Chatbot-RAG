@@ -93,36 +93,195 @@ def _clean_json_response(raw_text: str) -> Optional[dict]:
 
     return None
 
+# ─── Smart Scoped NLP Parser & Dynamic Distractor Engine ─────────────
+
+NOISE_HEADER_PATTERNS = [
+    r"cộng\s*hòa\s*xã\s*hội\s*chủ\s*nghĩa\s*việt\s*nam",
+    r"độc\s*lập\s*-\s*tự\s*do\s*-\s*hạnh\s*phúc",
+    r"^(chính\s*phủ|bộ\s+[a-zà-ỹ\s]+|tổng\s*cục\s+[a-zà-ỹ\s]+|quốc\s*hội|thủ\s*tướng)\s*$",
+    r"^(số\s*:\s*[\d\w\/\-]+|hà\s*nội,\s*ngày|tp\.?\s*hồ\s*chí\s*minh,\s*ngày)",
+    r"^(nghị\s*định|thông\s*tư|luật|quyết\s*định)\s+số\s+[\d\w\/\-]+",
+    r"^điều\s+\d+[\.\:]\s*([^\n]{1,45})$",
+    r"^(chương|mục|phần)\s+[ivxlcdm\d]+",
+    r"^(trang\s+\d+|\d+\s*\/\s*\d+|mục\s*lục)",
+    r"^(kính\s*gửi|nơi\s*nhận)\s*[:\:]"
+]
+
+DYNAMIC_DISTRACTOR_POOL = {
+    "authority": [
+        "Doanh nghiệp tự ý quyết định và áp dụng mà không cần thông báo cho cơ quan quản lý nhà nước",
+        "Ủy ban nhân dân cấp xã có thẩm quyền trực tiếp ra quyết định xử lý và áp dụng biện pháp",
+        "Cơ quan Hải quan tự động hủy bỏ mọi biện pháp mà không cần ý kiến của cơ quan điều tra",
+        "Toàn bộ thẩm quyền điều tra thuộc về tổ chức trọng tài thương mại quốc tế ngoài nước",
+        "Hiệp hội ngành hàng tự ban hành quyết định điều tra mà không thông qua Bộ quản lý chuyên ngành"
+    ],
+    "timeline": [
+        "Thời hạn giải quyết không bị giới hạn và có thể kéo dài vô thời hạn tùy theo ý chí của bên yêu cầu",
+        "Mọi thủ tục phải hoàn thành bắt buộc trong vòng 24 giờ kể từ khi tiếp nhận hồ sơ",
+        "Chỉ tiếp nhận hồ sơ trong 01 ngày làm việc duy nhất của mỗi quý theo thông báo",
+        "Thời hạn điều tra tự động gia hạn thêm 05 năm mà không cần bất kỳ căn cứ pháp lý nào",
+        "Không quy định thời hạn cụ thể, việc thực hiện hoàn toàn phụ thuộc vào thỏa thuận nội bộ"
+    ],
+    "evidence": [
+        "Không cần xuất trình chứng cứ hay tài liệu chứng minh khi nộp đơn yêu cầu xử lý",
+        "Mọi thông tin trong hồ sơ đều phải giữ bí mật tuyệt đối và không được cung cấp cho bất kỳ bên liên quan nào",
+        "Chỉ chấp nhận chứng cứ bằng văn bản giấy có công chứng, không chấp nhận dữ liệu điện tử",
+        "Bên yêu cầu có quyền từ chối cung cấp chứng cứ nhưng vẫn được chấp thuận toàn bộ yêu cầu",
+        "Chỉ sử dụng thông tin do bên bị điều tra tự khai mà không tiến hành thẩm tra, xác minh"
+    ],
+    "obligations": [
+        "Người thực hiện không cần lưu trữ hồ sơ hay thực hiện bất kỳ nghĩa vụ theo dõi nào sau thông quan",
+        "Tự động miễn trừ toàn bộ trách nhiệm bồi thường và nghĩa vụ pháp lý liên quan trong mọi trường hợp",
+        "Bên bị điều tra có quyền từ chối hợp tác mà không phải chịu bất kỳ bất lợi pháp lý nào",
+        "Không phải chịu trách nhiệm trước pháp luật đối với các số liệu, tài liệu cung cấp sai lệch",
+        "Được phép tự ý sửa đổi hồ sơ sau khi đã có quyết định chính thức của cơ quan có thẩm quyền"
+    ],
+    "general": [
+        "Chỉ áp dụng đối với hàng hóa lưu thông nội địa không chịu sự quản lý của cơ quan chức năng",
+        "Quy định áp dụng đối với tất cả hàng hóa tiêu dùng cá nhân phi thương mại",
+        "Không áp dụng đối với bất kỳ tổ chức, cá nhân nào tham gia hoạt động xuất nhập khẩu",
+        "Miễn trừ toàn bộ nghĩa vụ kiểm tra chuyên ngành cho các doanh nghiệp có vốn đầu tư nước ngoài",
+        "Quy định chỉ mang tính chất khuyến nghị và không có hiệu lực bắt buộc thi hành"
+    ]
+}
+
+def _is_administrative_or_noise(text: str) -> bool:
+    """Kiểm tra xem dòng văn bản có phải là tiêu đề hành chính, số trang hoặc rác không mang giá trị quy phạm."""
+    if not text or len(text.strip()) < 25:
+        return True
+    cleaned = text.strip().lower()
+    for pattern in NOISE_HEADER_PATTERNS:
+        if re.search(pattern, cleaned):
+            return True
+    return False
+
+def _extract_smart_normative_clauses(scoped_chunks: List[dict], max_clauses: int = 25) -> List[Dict[str, Any]]:
+    """Bóc tách các mệnh đề quy phạm hoàn chỉnh, giàu ý nghĩa pháp lý từ tài liệu Scoped PDF."""
+    clauses: List[Dict[str, Any]] = []
+    seen_texts = set()
+
+    regulatory_keywords = [
+        "phải", "có trách nhiệm", "thẩm quyền", "trong thời hạn", "không được", "bị cấm",
+        "được phép", "được miễn", "áp dụng", "bao gồm", "là việc", "chứng cứ", "thiệt hại",
+        "phòng vệ", "thuế", "hồ sơ", "quyết định", "điều tra", "nguyên tắc", "điều kiện",
+        "thủ tục", "cung cấp", "công bố", "tiếp nhận", "xử lý"
+    ]
+
+    for chunk in scoped_chunks:
+        txt = chunk.get("text", "").strip()
+        if not txt:
+            continue
+        
+        # Tách theo dấu chấm câu hoặc xuống dòng
+        raw_sentences = re.split(r'(?<=[.!?;\n])\s+', txt)
+        for s in raw_sentences:
+            s_clean = s.strip()
+            # Chuẩn hóa khoảng trắng thừa
+            s_clean = re.sub(r'\s+', ' ', s_clean)
+            
+            if len(s_clean) < 40 or len(s_clean) > 220:
+                continue
+            if _is_administrative_or_noise(s_clean):
+                continue
+            if s_clean.lower() in seen_texts:
+                continue
+
+            # Tính điểm độ giàu thông tin pháp lý
+            s_lower = s_clean.lower()
+            score = sum(1 for kw in regulatory_keywords if kw in s_lower)
+            if score > 0:
+                # Phân loại ngữ nghĩa câu
+                clause_type = "general"
+                if any(w in s_lower for w in ["thẩm quyền", "bộ ", "cơ quan", "chính phủ", "tổng cục", "thủ tướng"]):
+                    clause_type = "authority"
+                elif any(w in s_lower for w in ["thời hạn", "ngày", "tháng", "năm", "trình tự", "thời điểm"]):
+                    clause_type = "timeline"
+                elif any(w in s_lower for w in ["chứng cứ", "hồ sơ", "tài liệu", "thông tin", "cung cấp", "công khai"]):
+                    clause_type = "evidence"
+                elif any(w in s_lower for w in ["nghĩa vụ", "trách nhiệm", "phải", "không được", "bị cấm", "hợp tác"]):
+                    clause_type = "obligations"
+
+                seen_texts.add(s_lower)
+                clauses.append({
+                    "text": s_clean,
+                    "type": clause_type,
+                    "score": score
+                })
+
+    # Sắp xếp ưu tiên các câu giàu ngữ nghĩa pháp lý nhất
+    clauses.sort(key=lambda x: x["score"], reverse=True)
+    return clauses[:max_clauses]
+
 def _generate_rich_fallback_questions(source_name: str, diff: str, num_q: int, scoped_chunks: Optional[List[dict]] = None) -> List[Dict[str, Any]]:
     """Tạo bộ câu hỏi trắc nghiệm phong phú, chuẩn xác (tối thiểu 10 câu) khi LLM không phản hồi hoặc trả về thiếu câu."""
     questions: List[Dict[str, Any]] = []
 
-    # 1. Nếu có tài liệu người dùng tải lên (Scoped Chunks), trích xuất trực tiếp từ các đoạn văn bản
+    # 1. Nếu có tài liệu người dùng tải lên (Scoped Chunks), áp dụng Smart NLP Extractor
     if scoped_chunks:
-        for idx, chunk in enumerate(scoped_chunks[:max(num_q, 20)]):
-            txt = chunk.get("text", "").strip()
-            if len(txt) < 30:
-                continue
-            lines = [l.strip() for l in txt.split("\n") if len(l.strip()) > 25]
-            snippet = lines[0] if lines else txt[:140]
+        normative_clauses = _extract_smart_normative_clauses(scoped_chunks, max_clauses=max(num_q * 2, 25))
+        distractor_keys = ["authority", "timeline", "evidence", "obligations", "general"]
 
-            opt_a = snippet[:130] + ("..." if len(snippet) > 130 else "")
-            opt_b = "Chỉ áp dụng với hàng hóa nội địa không chịu sự quản lý của cơ quan chức năng"
-            opt_c = "Người thực hiện không cần lưu trữ hồ sơ hay thực hiện nghĩa vụ theo dõi"
-            opt_d = "Tự động miễn trừ toàn bộ thủ tục kiểm tra và trách nhiệm pháp lý liên quan"
+        for idx, clause in enumerate(normative_clauses):
+            correct_text = clause["text"]
+            c_type = clause["type"]
 
-            # Đảo vị trí đáp án đúng ngẫu nhiên giữa A, B, C, D
-            slot = ["A", "B", "C", "D"][len(questions) % 4]
-            opts = {"A": opt_b, "B": opt_c, "C": opt_d, "D": "Quy định khác"}
-            opts[slot] = opt_a
+            # Cắt ngắn vừa vặn nếu quá dài
+            if len(correct_text) > 140:
+                opt_correct = correct_text[:135].rsplit(" ", 1)[0] + "..."
+            else:
+                opt_correct = correct_text
+
+            # Rút trích chủ đề ngắn gọn để gắn vào câu hỏi
+            words = correct_text.split()
+            topic_snippet = " ".join(words[:6]) if len(words) >= 6 else correct_text[:35]
+            topic_snippet = topic_snippet.rstrip(",.:;")
+
+            # 5 Mẫu câu hỏi biến thiên theo ngữ cảnh
+            if c_type == "authority":
+                q_text = f"Theo quy định tại văn bản '{source_name}', cơ quan hoặc chủ thể có thẩm quyền/trách nhiệm đối với nội dung liên quan đến '{topic_snippet}' được quy định như thế nào?"
+            elif c_type == "timeline":
+                q_text = f"Quy định về thời hạn, thời điểm hoặc trình tự thực hiện liên quan đến '{topic_snippet}' theo văn bản '{source_name}' là gì?"
+            elif c_type == "evidence":
+                q_text = f"Theo văn bản '{source_name}', quy định về hồ sơ, chứng cứ hoặc tính công khai liên quan đến '{topic_snippet}' được xác định như thế nào?"
+            elif c_type == "obligations":
+                q_text = f"Theo quy định tại văn bản '{source_name}', quyền và nghĩa vụ hoặc trách nhiệm pháp lý liên quan đến '{topic_snippet}' được quy định như thế nào?"
+            else:
+                q_text = f"Theo nội dung văn bản '{source_name}', nhận định nào sau đây phản ánh chính xác quy định pháp luật liên quan đến '{topic_snippet}'?"
+
+            # Lấy 3 phương án nhiễu khác loại và đảo vòng để tránh trùng lặp
+            distractors: List[str] = []
+            pool_category_order = [k for k in distractor_keys if k != c_type] + [c_type]
+            for cat_idx, cat in enumerate(pool_category_order):
+                cat_pool = DYNAMIC_DISTRACTOR_POOL.get(cat, DYNAMIC_DISTRACTOR_POOL["general"])
+                d_item = cat_pool[(idx + cat_idx) % len(cat_pool)]
+                if d_item not in distractors and d_item != opt_correct:
+                    distractors.append(d_item)
+                if len(distractors) == 3:
+                    break
+
+            while len(distractors) < 3:
+                fallback_d = DYNAMIC_DISTRACTOR_POOL["general"][(idx + len(distractors)) % len(DYNAMIC_DISTRACTOR_POOL["general"])]
+                if fallback_d not in distractors:
+                    distractors.append(fallback_d)
+
+            # Phân bổ vị trí đáp án đúng ngẫu nhiên giữa A, B, C, D
+            correct_slot = ["A", "B", "C", "D"][idx % 4]
+            distractor_iter = iter(distractors)
+            opts = {}
+            for slot in ["A", "B", "C", "D"]:
+                if slot == correct_slot:
+                    opts[slot] = opt_correct
+                else:
+                    opts[slot] = next(distractor_iter)
 
             questions.append({
-                "question": f"Theo nội dung văn bản '{source_name}', nhận định nào sau đây là chính xác?",
+                "question": q_text,
                 "options": opts,
-                "correct_option": slot,
-                "explanation": f"Căn cứ vào nội dung được nêu rõ trong tài liệu '{source_name}': '{snippet[:160]}...'",
+                "correct_option": correct_slot,
+                "explanation": f"Căn cứ vào nội dung được nêu rõ trong tài liệu '{source_name}': '{correct_text}'",
                 "citation_code": f"Tài liệu: {source_name}"
             })
+
             if len(questions) >= num_q:
                 break
 
