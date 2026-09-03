@@ -17,7 +17,8 @@ import { UpgradeModal } from './UpgradeModal';
 import { PricingPage } from '../pages/PricingPage';
 import { QuizRunnerModal } from '../features/quiz/QuizRunnerModal';
 import { TaxEstimatorModal } from '../features/tax/TaxEstimatorModal';
-import { TaxCalculationResult } from '../shared/types';
+import { CaseStudyModal } from '../features/case_study/CaseStudyModal';
+import { TaxCalculationResult, CaseStudyDetail } from '../shared/types';
 
 const createDefaultBlankSession = (): ChatSession => ({
   id: `session-${Date.now()}`,
@@ -76,6 +77,9 @@ export default function App() {
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
   const [taxModalData, setTaxModalData] = useState<TaxCalculationResult | null>(null);
   const [isTaxModalOpen, setIsTaxModalOpen] = useState(false);
+  const [activeCaseStudy, setActiveCaseStudy] = useState<CaseStudyDetail | null>(null);
+  const [isCaseStudyModalOpen, setIsCaseStudyModalOpen] = useState(false);
+  const [caseStudyModalTab, setCaseStudyModalTab] = useState<'solve' | 'solution'>('solve');
 
   // Modals state
   const [authModal, setAuthModal] = useState<{
@@ -561,6 +565,8 @@ export default function App() {
                 citations: finalData.citations || undefined,
                 summaryPdf: finalData.summaryPdf || undefined,
                 quiz: finalData.quiz || undefined,
+                tax: finalData.tax || undefined,
+                caseStudy: finalData.caseStudy || undefined,
               };
             }
 
@@ -786,6 +792,16 @@ export default function App() {
                     setTaxModalData(data);
                     setIsTaxModalOpen(true);
                   }}
+                  onOpenSolveCaseStudy={(cs) => {
+                    setActiveCaseStudy(cs);
+                    setCaseStudyModalTab('solve');
+                    setIsCaseStudyModalOpen(true);
+                  }}
+                  onOpenCaseStudySolution={(cs) => {
+                    setActiveCaseStudy(cs);
+                    setCaseStudyModalTab('solution');
+                    setIsCaseStudyModalOpen(true);
+                  }}
                 />
               ) : (
                 <HistoryView
@@ -844,6 +860,17 @@ export default function App() {
           onClose={() => {
             setIsTaxModalOpen(false);
             setTaxModalData(null);
+          }}
+        />
+
+        <CaseStudyModal
+          isOpen={isCaseStudyModalOpen}
+          caseStudy={activeCaseStudy}
+          initialTab={caseStudyModalTab}
+          userId={currentUser?.id}
+          onClose={() => {
+            setIsCaseStudyModalOpen(false);
+            setActiveCaseStudy(null);
           }}
         />
 

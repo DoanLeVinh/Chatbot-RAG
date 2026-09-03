@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ChatSession, ChatMessage, TaxCalculationResult } from '../shared/types';
+import { ChatSession, ChatMessage, TaxCalculationResult, CaseStudyDetail } from '../shared/types';
 import { RippleButton } from '../shared/components/RippleButton';
 import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor, FileText, ThumbsUp, ThumbsDown, Copy, SpeakerHigh, Check } from '@phosphor-icons/react';
 import { Zap, BrainCircuit, BookOpenCheck, ArrowRight } from 'lucide-react';
 import { InChatTaxCard } from '../features/tax/InChatTaxCard';
+import { InChatCaseStudyCard } from '../features/case_study/InChatCaseStudyCard';
 
 const getOrderedCitations = (msg: ChatMessage) => {
   if (!msg.citations || msg.citations.length === 0) return { processedText: msg.text, orderedCitations: [] };
@@ -59,6 +60,8 @@ interface ChatViewProps {
   onUpgradeClick?: () => void;
   onStartQuiz?: (quizId: string) => void;
   onOpenTaxModal?: (taxData: TaxCalculationResult) => void;
+  onOpenSolveCaseStudy?: (caseStudy: CaseStudyDetail) => void;
+  onOpenCaseStudySolution?: (caseStudy: CaseStudyDetail) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -76,6 +79,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onUpgradeClick,
   onStartQuiz,
   onOpenTaxModal,
+  onOpenSolveCaseStudy,
+  onOpenCaseStudySolution,
 }) => {
   const [inputText, setInputText] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
@@ -560,6 +565,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <InChatTaxCard 
                       initialTax={msg.tax} 
                       onOpenDetailedModal={onOpenTaxModal} 
+                    />
+                  )}
+
+                  {/* Interactive In-Chat Case Study Card */}
+                  {msg.caseStudy && (
+                    <InChatCaseStudyCard
+                      caseStudy={msg.caseStudy}
+                      onOpenSolveModal={(cs) => onOpenSolveCaseStudy && onOpenSolveCaseStudy(cs)}
+                      onOpenSolutionModal={(cs) => onOpenCaseStudySolution && onOpenCaseStudySolution(cs)}
                     />
                   )}
 

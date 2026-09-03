@@ -78,6 +78,54 @@ export interface ChatMessage {
   quiz?: QuizSummary;
   attachment?: Attachment;
   tax?: TaxCalculationResult;
+  caseStudy?: CaseStudyDetail;
+}
+
+export interface CaseStudyDocument {
+  name: string;
+  code: string;
+  summary: string;
+}
+
+export interface CaseStudyRubricItem {
+  criterion: string;
+  max_points: number;
+}
+
+export interface CaseStudyDetail {
+  id: string;
+  title: string;
+  category: string;
+  categoryName: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  company: string;
+  context: string;
+  documents: CaseStudyDocument[];
+  questions: string[];
+  solution?: {
+    analysis?: string;
+    step_by_step_math?: string[];
+    final_numbers?: Record<string, number>;
+    legal_citations?: string[];
+  };
+  rubric: CaseStudyRubricItem[];
+  createdAt: string;
+}
+
+export interface CaseStudyRubricScore {
+  criterion: string;
+  maxPoints: number;
+  awardedPoints: number;
+  comment: string;
+}
+
+export interface CaseStudyGradingResult {
+  score: number;
+  passed: boolean;
+  feedback: string;
+  rubricScores: CaseStudyRubricScore[];
+  solution?: any;
+  submissionId?: string;
 }
 
 export interface QuizSummary {
