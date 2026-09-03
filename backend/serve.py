@@ -80,6 +80,7 @@ if PAPERS_DIR.exists():
 agent_dispatcher: Optional[AgentDispatcher] = None
 semantic_cache: Optional[SemanticCache] = None
 _retriever = None  # LocalRetriever singleton
+retriever = None
 
 
 # ─── Security & Authentication Dependencies ────────────────────────
@@ -351,6 +352,18 @@ class TaxCalcIn(BaseModel):
     coForm: str = "MFN"
     customExchangeRate: Optional[float] = None
 
+class CaseStudyGenerateIn(BaseModel):
+    category: Optional[str] = None
+    difficulty: str = "medium"
+    prompt: Optional[str] = None
+    sessionId: Optional[str] = None
+    userId: Optional[str] = None
+
+class CaseStudySubmitIn(BaseModel):
+    solution: str
+    userId: Optional[str] = None
+
+
 
 # ─── Startup event ──────────────────────────────────────────────────
 
@@ -578,6 +591,80 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
                         )
                     except Exception as db_err:
                         print(f"[Warning] Failed to persist quiz message to SQLite: {db_err}")
+
+                yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
+                return
+
+            import case_study_service
+            if case_study_service.is_case_study_intent(req.prompt):
+                yield f"data: {json.dumps({'stage': '🔍 Phân tích hồ sơ doanh nghiệp & Khởi tạo tình huống...'}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0)
+
+                yield f"data: {json.dumps({'stage': '📝 Thiết lập barem chấm điểm & Đáp án chuẩn...'}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0)
+
+                loop = asyncio.get_event_loop()
+                cs_future = loop.run_in_executor(
+                    None,
+                    case_study_service.generate_case_study,
+                    None,
+                    "medium",
+                    req.prompt,
+                    effective_user_id,
+                    req.sessionId
+                )
+
+                while not cs_future.done():
+                    yield f"data: {json.dumps({'stage': '📝 Thiết lập barem chấm điểm & Đáp án chuẩn...'}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(1.0)
+
+                case_data = await cs_future
+
+                # Tạo văn bản giới thiệu tình huống để stream
+                intro_lines = [
+                    f"### 📋 BÀI TẬP TÌNH HUỐNG: {case_data.get('title', '').upper()}",
+                    f"**Chủ đề:** {case_data.get('categoryName')} | **Cấp độ:** {case_data.get('difficulty', 'medium').capitalize()} | **Doanh nghiệp:** {case_data.get('company')}\n",
+                    f"#### 📖 Bối cảnh tình huống:",
+                    f"{case_data.get('context')}\n",
+                    f"#### ❓ Các yêu cầu cần giải quyết:"
+                ]
+                for q in case_data.get("questions", []):
+                    intro_lines.append(f"- {q}")
+                intro_lines.append("\n> 💡 **Hướng dẫn:** Bạn hãy bấm nút **`[✍️ Bắt đầu làm bài tự luận]`** bên dưới để trình bày lời giải và nhận bảng điểm chi tiết từ AI.")
+
+                reply_text = "\n\n".join(intro_lines)
+
+                # Stream out reply_text tokens smoothly
+                words = reply_text.split(" ")
+                for i, w in enumerate(words):
+                    chunk_token = w + (" " if i < len(words) - 1 else "")
+                    yield f"data: {json.dumps({'token': chunk_token}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.008)
+
+                final_payload = {
+                    "done": True,
+                    "reply": reply_text,
+                    "provider": "AI Case Study & Scenario Reasoning Engine",
+                    "hsCode": None,
+                    "taxes": None,
+                    "inspections": None,
+                    "citations": None,
+                    "summaryPdf": None,
+                    "quiz": None,
+                    "tax": None,
+                    "caseStudy": case_data
+                }
+
+                if req.sessionId:
+                    try:
+                        timestamp = datetime.now().strftime('%H:%M')
+                        db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
+                        db.add_message(
+                            req.sessionId, 'ai', reply_text, timestamp,
+                            case_study=case_data, user_id=effective_user_id
+                        )
+                    except Exception as db_err:
+                        print(f"[Warning] Failed to persist case study message to SQLite: {db_err}")
 
                 yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
                 return
@@ -1619,7 +1706,7 @@ async def admin_delete_document(
     background_tasks: BackgroundTasks,
     admin: dict = Depends(require_admin_user)
 ):
-    global retriever
+    retriever = get_retriever()
     try:
         # 1. Delete from DB
         success = db.delete_document_by_source(source)
@@ -1633,11 +1720,9 @@ async def admin_delete_document(
         # 3. Rebuild faiss index in background
         def rebuild_faiss_bg():
             try:
-                global retriever
-                if retriever:
-                    retriever.rebuild_faiss_index()
-                else:
-                    get_retriever()
+                r = get_retriever()
+                if r:
+                    r.rebuild_faiss_index()
             except Exception as e:
                 print(f"Warning: Failed to rebuild FAISS after deletion: {e}")
                 
@@ -1655,7 +1740,7 @@ async def admin_create_chunk(
     req: AdminChunkCreateReq,
     admin: dict = Depends(require_admin_user)
 ):
-    global retriever
+    retriever = get_retriever()
     try:
         parent_id = f"chunk_{uuid.uuid4().hex[:8]}"
         chapter = req.chapter or "Không phân chương"
@@ -1697,7 +1782,7 @@ async def admin_delete_chunk(
     parent_id: str,
     admin: dict = Depends(require_admin_user)
 ):
-    global retriever
+    retriever = get_retriever()
     try:
         # 1. Delete from SQLite
         db.delete_chunk(parent_id)
@@ -1730,7 +1815,7 @@ async def admin_update_chunk(
     req: AdminChunkUpdateReq,
     admin: dict = Depends(require_admin_user)
 ):
-    global retriever
+    retriever = get_retriever()
     try:
         # 1. Update in SQLite with SHA-256 recalculation
         db.update_chunk(parent_id, req.text, req.chapter or "", req.article_ids)
@@ -1942,6 +2027,92 @@ async def api_get_tax_history(
         return JSONResponse({"history": []})
     history = db.get_user_tax_history(effective_user_id, limit=limit)
     return JSONResponse({"history": history})
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CASE STUDY & SCENARIO REASONING ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════
+
+@app.post('/api/case-study/generate')
+async def api_generate_case_study(
+    payload: CaseStudyGenerateIn,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    import case_study_service
+    effective_user_id = resolve_effective_user_id(payload.userId, current_user)
+    case_study = case_study_service.generate_case_study(
+        category=payload.category,
+        difficulty=payload.difficulty,
+        prompt=payload.prompt,
+        user_id=effective_user_id,
+        session_id=payload.sessionId
+    )
+    return JSONResponse(case_study)
+
+@app.get('/api/case-study/history')
+async def api_get_case_study_history(
+    limit: int = 20,
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+    user_id: Optional[str] = None
+):
+    import db
+    effective_user_id = resolve_effective_user_id(user_id, current_user)
+    if not effective_user_id:
+        return JSONResponse({"history": []})
+    history = db.get_user_case_study_history(effective_user_id, limit=limit)
+    return JSONResponse({"history": history})
+
+@app.get('/api/case-study/{case_id}')
+async def api_get_case_study_detail(
+    case_id: str,
+    include_solution: bool = False
+):
+    import db
+    cs = db.get_case_study(case_id)
+    if not cs:
+        return JSONResponse({"error": "Case study not found"}, status_code=404)
+    # Ẩn solution nếu chưa yêu cầu xem đáp án mẫu để bảo đảm tính khảo thí
+    if not include_solution:
+        cs = dict(cs)
+        cs["solution"] = None
+    return JSONResponse(cs)
+
+@app.post('/api/case-study/{case_id}/submit')
+async def api_submit_case_study_solution(
+    case_id: str,
+    payload: CaseStudySubmitIn,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    import db
+    import case_study_service
+    cs = db.get_case_study(case_id)
+    if not cs:
+        return JSONResponse({"error": "Case study not found"}, status_code=404)
+    
+    try:
+        effective_user_id = resolve_effective_user_id(payload.userId, current_user)
+    except HTTPException:
+        effective_user_id = "anonymous"
+
+    result = case_study_service.grade_case_study_solution(cs, payload.solution)
+
+    # Lưu kết quả chấm vào cơ sở dữ liệu
+    try:
+        sub_id = db.save_case_study_submission(
+            case_study_id=case_id,
+            user_id=effective_user_id,
+            user_solution=payload.solution,
+            score=result["score"],
+            rubric_scores=result["rubricScores"],
+            feedback=result["feedback"],
+            passed=result["passed"]
+        )
+        result["submissionId"] = sub_id
+    except Exception as e:
+        print(f"[Warning] Failed to save case study submission: {e}")
+
+    return JSONResponse(result)
+
 
 
 # ═══════════════════════════════════════════════════════════════════
