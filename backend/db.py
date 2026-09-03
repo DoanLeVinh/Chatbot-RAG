@@ -17,7 +17,7 @@ import os
 import json
 import uuid
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 
 # Make DB_PATH relative to db.py location, effectively C:\TTTN\Chatbot-RAG\data\logichat.db
@@ -235,13 +235,54 @@ def init_db():
             );
         """)
 
-        # Migration: Ensure 'quiz_json' and 'tax_json' columns exist in messages
+        # Migration: Ensure 'quiz_json', 'tax_json', and 'case_study_json' columns exist in messages
         cursor.execute("PRAGMA table_info(messages);")
         msg_cols = [col["name"] for col in cursor.fetchall()]
         if "quiz_json" not in msg_cols:
             cursor.execute("ALTER TABLE messages ADD COLUMN quiz_json TEXT;")
         if "tax_json" not in msg_cols:
             cursor.execute("ALTER TABLE messages ADD COLUMN tax_json TEXT;")
+        if "case_study_json" not in msg_cols:
+            cursor.execute("ALTER TABLE messages ADD COLUMN case_study_json TEXT;")
+
+        # Table: case_studies
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS case_studies (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                user_id TEXT,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL,
+                category_name TEXT NOT NULL,
+                difficulty TEXT DEFAULT 'medium',
+                company TEXT,
+                context TEXT NOT NULL,
+                documents_json TEXT,
+                questions_json TEXT NOT NULL,
+                solution_json TEXT NOT NULL,
+                rubric_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        """)
+
+        # Table: case_study_submissions
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS case_study_submissions (
+                id TEXT PRIMARY KEY,
+                case_study_id TEXT NOT NULL,
+                user_id TEXT,
+                user_solution TEXT NOT NULL,
+                score REAL NOT NULL,
+                rubric_scores_json TEXT NOT NULL,
+                feedback TEXT,
+                passed BOOLEAN DEFAULT 0,
+                submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(case_study_id) REFERENCES case_studies(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        """)
 
         # Table: tax_calculations
         cursor.execute("""
@@ -678,6 +719,7 @@ def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Option
                 "summaryPdf": json.loads(m["summary_pdf_json"]) if m["summary_pdf_json"] else None,
                 "quiz": json.loads(m["quiz_json"]) if ("quiz_json" in m.keys() and m["quiz_json"]) else None,
                 "tax": json.loads(m["tax_json"]) if ("tax_json" in m.keys() and m["tax_json"]) else None,
+                "caseStudy": json.loads(m["case_study_json"]) if ("case_study_json" in m.keys() and m["case_study_json"]) else None,
             })
 
         cursor.execute("SELECT * FROM attachments WHERE session_id = ?;", (session_id,))
@@ -720,7 +762,7 @@ def delete_session(session_id: str, user_id: Optional[str] = None) -> bool:
 def add_message(session_id: str, sender: str, text: str, timestamp: str,
                 hs_code: str = None, taxes: list = None, inspections: dict = None,
                 citations: list = None, summary_pdf: dict = None, quiz: dict = None,
-                tax: dict = None, user_id: str = None) -> str:
+                tax: dict = None, case_study: dict = None, user_id: str = None) -> str:
     """Add a new chat message to SQLite database with auto-session recovery."""
     msg_id = f"{sender}-{uuid.uuid4().hex[:8]}"
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -731,6 +773,7 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
     pdf_str = json.dumps(summary_pdf, ensure_ascii=False) if summary_pdf else None
     quiz_str = json.dumps(quiz, ensure_ascii=False) if quiz else None
     tax_str = json.dumps(tax, ensure_ascii=False) if tax else None
+    case_study_str = json.dumps(case_study, ensure_ascii=False) if case_study else None
 
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -750,9 +793,9 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
             cursor.execute("UPDATE sessions SET user_id = ? WHERE id = ?;", (user_id, session_id))
 
         cursor.execute(
-            """INSERT INTO messages (id, session_id, sender, text, timestamp, hs_code, taxes_json, inspections_json, citations_json, summary_pdf_json, quiz_json, tax_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
-            (msg_id, session_id, sender, text, timestamp, hs_code, taxes_str, inspections_str, citations_str, pdf_str, quiz_str, tax_str)
+            """INSERT INTO messages (id, session_id, sender, text, timestamp, hs_code, taxes_json, inspections_json, citations_json, summary_pdf_json, quiz_json, tax_json, case_study_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+            (msg_id, session_id, sender, text, timestamp, hs_code, taxes_str, inspections_str, citations_str, pdf_str, quiz_str, tax_str, case_study_str)
         )
         
         if sender == 'user':
@@ -1573,6 +1616,128 @@ def delete_document_by_source(source: str) -> bool:
         cursor.execute("DELETE FROM documents WHERE filename = ? OR filename = ?;", (clean_name, source))
         conn.commit()
         return True
+
+def save_case_study(case_id: str, user_id: Optional[str], session_id: Optional[str], case_study_data: dict) -> str:
+    """Lưu trữ bài tập tình huống / tự luận vào cơ sở dữ liệu."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        user_id = _ensure_user_exists_cursor(cursor, user_id)
+
+        effective_session_id = None
+        if session_id:
+            cursor.execute("SELECT id FROM sessions WHERE id = ?;", (session_id,))
+            if cursor.fetchone():
+                effective_session_id = session_id
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO case_studies (
+                id, session_id, user_id, title, category, category_name, difficulty,
+                company, context, documents_json, questions_json, solution_json, rubric_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (
+            case_id,
+            effective_session_id,
+            user_id,
+            case_study_data.get("title", ""),
+            case_study_data.get("category", ""),
+            case_study_data.get("categoryName", ""),
+            case_study_data.get("difficulty", "medium"),
+            case_study_data.get("company", ""),
+            case_study_data.get("context", ""),
+            json.dumps(case_study_data.get("documents", []), ensure_ascii=False),
+            json.dumps(case_study_data.get("questions", []), ensure_ascii=False),
+            json.dumps(case_study_data.get("solution", {}), ensure_ascii=False),
+            json.dumps(case_study_data.get("rubric", []), ensure_ascii=False),
+            now_str
+        ))
+        conn.commit()
+        return case_id
+
+def get_case_study(case_id: str) -> Optional[dict]:
+    """Lấy thông tin chi tiết bài tập tình huống."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM case_studies WHERE id = ?;", (case_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "sessionId": row["session_id"],
+            "userId": row["user_id"],
+            "title": row["title"],
+            "category": row["category"],
+            "categoryName": row["category_name"],
+            "difficulty": row["difficulty"],
+            "company": row["company"],
+            "context": row["context"],
+            "documents": json.loads(row["documents_json"]) if row["documents_json"] else [],
+            "questions": json.loads(row["questions_json"]) if row["questions_json"] else [],
+            "solution": json.loads(row["solution_json"]) if row["solution_json"] else {},
+            "rubric": json.loads(row["rubric_json"]) if row["rubric_json"] else [],
+            "createdAt": row["created_at"]
+        }
+
+def save_case_study_submission(
+    case_study_id: str,
+    user_id: Optional[str],
+    user_solution: str,
+    score: float,
+    rubric_scores: list,
+    feedback: str,
+    passed: bool
+) -> str:
+    """Lưu trữ bài nộp và kết quả chấm điểm của người dùng."""
+    sub_id = f"sub-{uuid.uuid4().hex[:10]}"
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        user_id = _ensure_user_exists_cursor(cursor, user_id)
+        cursor.execute("""
+            INSERT INTO case_study_submissions (
+                id, case_study_id, user_id, user_solution, score, rubric_scores_json, feedback, passed, submitted_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (
+            sub_id,
+            case_study_id,
+            user_id,
+            user_solution,
+            score,
+            json.dumps(rubric_scores, ensure_ascii=False),
+            feedback,
+            1 if passed else 0,
+            now_str
+        ))
+        conn.commit()
+        return sub_id
+
+def get_user_case_study_history(user_id: str, limit: int = 20) -> list:
+    """Lấy danh sách các bài tập tình huống người dùng đã nộp bài."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sub.*, cs.title, cs.category, cs.category_name
+            FROM case_study_submissions sub
+            JOIN case_studies cs ON sub.case_study_id = cs.id
+            WHERE sub.user_id = ?
+            ORDER BY sub.submitted_at DESC LIMIT ?;
+        """, (user_id, limit))
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "caseStudyId": r["case_study_id"],
+                "title": r["title"],
+                "category": r["category"],
+                "categoryName": r["category_name"],
+                "score": r["score"],
+                "passed": bool(r["passed"]),
+                "feedback": r["feedback"],
+                "submittedAt": r["submitted_at"]
+            }
+            for r in rows
+        ]
 
 # Initialize DB upon import
 init_db()
