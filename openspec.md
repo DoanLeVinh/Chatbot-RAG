@@ -513,3 +513,42 @@ Phần 8 — Báo Cáo Hiện Trạng Toàn Diện Của Hệ Thống (System He
  - `POST /api/tariff/calculate`: Tính toán lại bảng thuế theo thời gian thực khi thay đổi tham số.
  - `GET /api/tariff/search`: Tìm kiếm mã HS, tên hàng hóa và tỷ giá ngoại tệ.
  - `GET /api/tariff/history`: Lấy lịch sử tính thuế của người dùng đã xác thực.
+
+---
+
+### PHẦN 11: KIẾN TRÚC CÔNG CỤ TẠO & GIẢI BÀI TẬP TÌNH HUỐNG SUY LUẬN - TỰ LUẬN TÍNH TOÁN NGHIỆP VỤ HẢI QUAN (AI CASE STUDY & SCENARIO REASONING ENGINE)
+
+1. Tổng Quan & Mục Tiêu Nghiệp Vụ:
+ - Hiện thực hóa năng lực tư duy suy luận pháp lý, giải quyết tranh chấp thực tế và bài toán tính toán nghiệp vụ hải quan phức tạp (Problem-Solving & Case Analysis).
+ - Tự động tạo các tình huống doanh nghiệp giả định gắn với chứng từ ngoại thương: Hợp đồng (Sales Contract), Hóa đơn (Commercial Invoice), Vận đơn (Bill of Lading), Chứng nhận xuất xứ (C/O).
+ - Cung cấp 4 dạng kịch bản chuẩn hóa:
+   * **Dạng 1: Trị giá Hải quan & Điều chỉnh Incoterms 2020** (Incoterms FOB/EXW, cước biển F, bảo hiểm I, hoa hồng môi giới, phí bốc dỡ theo Thông tư 39/2015/TT-BTC & 60/2019/TT-BTC).
+   * **Dạng 2: Đa sắc thuế & Phòng vệ thương mại** (Hàng hóa chịu đồng thời Thuế NK Form E/EUR.1/VK, Thuế Chống bán phá giá AD, Thuế TTĐB, BVMT và Thuế GTGT).
+   * **Dạng 3: Quy tắc Xuất xứ (C/O) & Tranh chấp Hóa đơn Bên Thứ Ba** (Thẩm định tính hợp lệ ô số 13 Third Party Invoicing, thủ tục bảo lãnh tạm nộp MFN và xác minh C/O theo Thông tư 12/2019/TT-BCT & 33/2023/TT-BTC).
+   * **Dạng 4: Khai bổ sung sau thông quan & Phạt chậm nộp 0.03%/ngày** (Khai sai mã HS dẫn đến thiếu thuế, truy thu thuế NK + VAT, tính tiền chậm nộp theo Luật Quản lý thuế 38/2019 và phạt 20% theo Nghị định 128/2020/NĐ-CP).
+
+2. Quy Trình Xử Lý & Cơ Chế Chấm Điểm Barem Chuẩn (Auto-Rubric Grader):
+ - **Zero-Hallucination Math Engine**: Đáp án chuẩn (Ground Truth) được tính toán tự động bằng Python Engine, đảm bảo tính đúng đắn tuyệt đối về số học từng đồng VNĐ.
+ - **Khung Barem 4 Tiêu Chí Chuẩn (Thang điểm 10.0)**:
+   * Tiêu chí 1: Căn cứ pháp lý & Nhận diện nghiệp vụ (2.5 điểm).
+   * Tiêu chí 2: Xác định Trị giá tính thuế V_NK / Quy trình xử lý C/O (2.5 điểm).
+   * Tiêu chí 3: Tính toán số tiền thuế, tiền phạt và chênh lệch thuế (2.5 điểm).
+   * Tiêu chí 4: Kết luận & Đề xuất giải pháp thủ tục cho doanh nghiệp (2.5 điểm).
+ - **Luồng SSE Stream**:
+   * Phát hiện ý định qua `is_case_study_intent(prompt)`.
+   * Phát các stage: `🔍 Phân tích hồ sơ doanh nghiệp & Khởi tạo tình huống...` -> `📝 Thiết lập barem chấm điểm & Đáp án chuẩn...`.
+   * Stream đoạn giới thiệu tình huống và phát sự kiện `caseStudy` kèm cấu trúc dữ liệu đầy đủ.
+ - **Giao Diện In-Chat Card & Modal Tương Tác**:
+   * `InChatCaseStudyCard.tsx`: Thẻ bóng chat hiển thị tóm tắt tình huống, hồ sơ chứng từ, câu hỏi yêu cầu, nút `[✍️ Bắt đầu làm bài tự luận]` và `[💡 Barem & Đáp án]`.
+   * `CaseStudyModal.tsx`: Modal toàn diện gồm tab làm bài tự luận, trình soạn thảo lời giải, nút nộp bài chấm điểm thời gian thực, bảng điểm chi tiết từng tiêu chí kèm lời giải chuẩn của chuyên gia.
+
+3. Cấu Trúc Cơ Sở Dữ Liệu SQLite:
+ - `case_studies`: `id`, `session_id`, `user_id`, `title`, `category`, `category_name`, `difficulty`, `company`, `context`, `documents_json`, `questions_json`, `solution_json`, `rubric_json`, `created_at`.
+ - `case_study_submissions`: `id`, `case_study_id`, `user_id`, `user_solution`, `score`, `rubric_scores_json`, `feedback`, `passed`, `submitted_at`.
+ - `messages`: Cột `case_study_json` lưu trữ đề bài tình huống hiển thị trên thẻ chat.
+
+4. REST Endpoints Mới:
+ - `POST /api/case-study/generate`: Sinh đề bài tập tình huống theo yêu cầu.
+ - `GET /api/case-study/{case_id}`: Lấy chi tiết đề bài (ẩn lời giải nếu chưa nộp bài hoặc chưa yêu cầu unmask).
+ - `POST /api/case-study/{case_id}/submit`: Nộp bài làm tự luận và nhận bảng điểm chi tiết từ AI.
+ - `GET /api/case-study/history`: Lấy lịch sử bài tập của người dùng.
