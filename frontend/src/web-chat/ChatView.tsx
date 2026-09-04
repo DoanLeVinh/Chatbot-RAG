@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { ChatSession, ChatMessage, TaxCalculationResult, CaseStudyDetail } from '../shared/types';
 import { RippleButton } from '../shared/components/RippleButton';
 import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor, FileText, ThumbsUp, ThumbsDown, Copy, SpeakerHigh, Check } from '@phosphor-icons/react';
@@ -25,19 +26,24 @@ const getOrderedCitations = (msg: ChatMessage) => {
     const visualId = mapping[originalId] || originalId;
     return `[${visualId}](#citation-${originalId})`;
   });
+
+  const findCitation = (originalId: number) => {
+    return msg.citations!.find(c => c.id.startsWith(`cit-${originalId - 1}-`))
+        || msg.citations![originalId - 1]
+        || msg.citations!.find(c => c.code?.includes(String(originalId)));
+  };
   
   const orderedCitations: any[] = [];
   uniqueIds.forEach(originalId => {
-    const ref = msg.citations!.find(c => c.id.startsWith(`cit-${originalId - 1}-`));
-    if (ref) {
+    const ref = findCitation(originalId);
+    if (ref && !orderedCitations.some(item => (item.code && item.code === ref.code) || item.id === ref.id)) {
       orderedCitations.push({ ...ref, _visualId: mapping[originalId] });
     }
   });
   
   let nextVisualId = Object.keys(mapping).length + 1;
   msg.citations.forEach((ref, index) => {
-    const originalId = index + 1;
-    if (!uniqueIds.includes(originalId)) {
+    if (!orderedCitations.some(item => (item.code && item.code === ref.code) || item.id === ref.id)) {
       orderedCitations.push({ ...ref, _visualId: nextVisualId++ });
     }
   });
@@ -386,6 +392,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         return (
                           <>
                             <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
                               components={{
                                 p: ({node, ...props}) => <p className="mb-2.5 last:mb-0" {...props} />,
                                 strong: ({node, ...props}) => <strong className="font-bold text-slate-900" {...props} />,
@@ -418,12 +425,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                 a: ({node, href, children, ...props}) => {
                                   if (href?.startsWith('#citation-')) {
                                     const numIdx = parseInt(href.replace('#citation-', ''), 10) - 1;
-                                    const ref = msg.citations?.find(c => c.id.startsWith(`cit-${numIdx}-`));
+                                    const ref = msg.citations?.find(c => c.id.startsWith(`cit-${numIdx}-`))
+                                             || msg.citations?.[numIdx]
+                                             || msg.citations?.find(c => c.code?.includes(String(numIdx + 1)));
                                     
                                     return (
                                       <span className="tooltip-group inline-flex items-center">
                                         <button
-                                          onClick={(e) => { e.preventDefault(); if (ref?.code) onCitationClick(ref.code); }}
+                                          onClick={(e) => { e.preventDefault(); if (ref) onCitationClick(ref.code || ref.id); }}
                                           className="inline-flex items-center justify-center min-w-[20px] h-5 ml-1 px-1.5 text-[10px] font-bold text-blue-700 bg-blue-100 rounded-md hover:bg-blue-200 cursor-pointer shadow-xs border border-blue-200 transition-colors"
                                         >
                                           {children}
@@ -498,8 +507,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                       </div>
                                       <div className="flex flex-col gap-1.5 shrink-0 ml-2">
                                         <button
-                                          onClick={() => onCitationClick(c.code)}
-                                          className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1 whitespace-nowrap"
+                                          onClick={() => onCitationClick(c.code || c.id)}
+                                          className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1 whitespace-nowrap cursor-pointer"
                                         >
                                           <FileText size={14} /> Chi tiết
                                         </button>

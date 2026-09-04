@@ -31,7 +31,11 @@ def test_01_is_tax_intent_detection():
         "Quy định về khai hải quan điện tử tại Điều 25 Luật Hải quan",
         "Thủ tục cấp Giấy chứng nhận xuất xứ hàng hóa C/O",
         "Tạo bài trắc nghiệm về Luật Hải quan 2014",
-        "Xin chào bạn, hôm nay thời tiết thế nào?"
+        "Xin chào bạn, hôm nay thời tiết thế nào?",
+        "Khi xuất khẩu thì sẽ có những loại thuế gì?",
+        "Hàng xuất khẩu phải chịu các loại thuế nào?",
+        "Thuế xuất khẩu là gì?",
+        "Quy định về hoàn thuế xuất khẩu"
     ]
     for p in negative_prompts:
         assert tariff_service.is_tax_intent(p) is False, f"False positive tax intent for: {p}"

@@ -18,6 +18,7 @@ import { PricingPage } from '../pages/PricingPage';
 import { QuizRunnerModal } from '../features/quiz/QuizRunnerModal';
 import { TaxEstimatorModal } from '../features/tax/TaxEstimatorModal';
 import { CaseStudyModal } from '../features/case_study/CaseStudyModal';
+import { CitationModal } from './CitationModal';
 import { TaxCalculationResult, CaseStudyDetail } from '../shared/types';
 
 const createDefaultBlankSession = (): ChatSession => ({
@@ -80,6 +81,8 @@ export default function App() {
   const [activeCaseStudy, setActiveCaseStudy] = useState<CaseStudyDetail | null>(null);
   const [isCaseStudyModalOpen, setIsCaseStudyModalOpen] = useState(false);
   const [caseStudyModalTab, setCaseStudyModalTab] = useState<'solve' | 'solution'>('solve');
+  const [selectedCitationModal, setSelectedCitationModal] = useState<LegalCitation | null>(null);
+  const [copiedCitationId, setCopiedCitationId] = useState<string | null>(null);
 
   // Modals state
   const [authModal, setAuthModal] = useState<{
@@ -688,11 +691,22 @@ export default function App() {
   };
 
   const handleCitationClick = (citationCode: string) => {
-    setIsReferencesOpen(true);
-    setHighlightedCitationCode(citationCode);
-    setTimeout(() => {
-      setHighlightedCitationCode(null);
-    }, 4000);
+    const allCitations: LegalCitation[] = [
+      ...(activeSession?.references || []),
+      ...(activeSession?.messages?.flatMap((m) => m.citations || []) || []),
+    ];
+    const found = allCitations.find(
+      (c) => c.code === citationCode || c.id === citationCode || (c.title && c.title.includes(citationCode))
+    );
+    if (found) {
+      setSelectedCitationModal(found);
+    } else {
+      setIsReferencesOpen(true);
+      setHighlightedCitationCode(citationCode);
+      setTimeout(() => {
+        setHighlightedCitationCode(null);
+      }, 4000);
+    }
   };
 
   return (
@@ -893,6 +907,19 @@ export default function App() {
           citations={pdfModal.citations}
           onClose={() => setPdfModal({ ...pdfModal, isOpen: false })}
         />
+
+        {selectedCitationModal && (
+          <CitationModal
+            citation={selectedCitationModal}
+            onClose={() => setSelectedCitationModal(null)}
+            handleCopy={(id, text) => {
+              navigator.clipboard.writeText(text);
+              setCopiedCitationId(id);
+              setTimeout(() => setCopiedCitationId(null), 2000);
+            }}
+            copiedId={copiedCitationId}
+          />
+        )}
 
         <SettingsModal
           isOpen={isSettingsOpen}

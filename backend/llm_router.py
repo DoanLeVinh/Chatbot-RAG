@@ -103,11 +103,11 @@ class LLMRouter:
 
         # Model Candidates
         self.openrouter_models = [
+            "minimax/minimax-m3:free",
             "deepseek/deepseek-chat",
             "openai/gpt-4o-mini",
             "meta-llama/llama-3.3-70b-instruct",
             "qwen/qwen-2.5-72b-instruct",
-            "google/gemini-flash-1.5",
         ]
 
         self.gemini_models = [
@@ -163,9 +163,10 @@ class LLMRouter:
 
         for key_state in available_keys:
             for model_name in self.openrouter_models:
+                eff_max_tokens = min(max_tokens, 1500) if model_name.endswith(":free") else min(max_tokens, 700)
                 payload = {
                     "model": model_name,
-                    "max_tokens": min(max_tokens, 3500),
+                    "max_tokens": eff_max_tokens,
                     "temperature": temperature,
                     "frequency_penalty": 0.2,
                     "presence_penalty": 0.2,
@@ -198,7 +199,10 @@ class LLMRouter:
                     except Exception:
                         pass
 
-                    if exc.code in (429, 402, 403):
+                    if exc.code == 402:
+                        logger.warning(f"OpenRouter [{model_name}] HTTP 402 (insufficient credits), trying next candidate...")
+                        continue
+                    elif exc.code in (429, 403):
                         key_state.mark_exhausted(cooldown_seconds=300, reason=f"HTTP {exc.code} {err_body[:100]}")
                         break  # Break out to next key
                     elif exc.code == 404:
@@ -229,9 +233,10 @@ class LLMRouter:
         
         for key_state in available_keys:
             for model_name in self.openrouter_models:
+                eff_max_tokens = min(max_tokens, 1500) if model_name.endswith(":free") else min(max_tokens, 700)
                 payload = {
                     "model": model_name,
-                    "max_tokens": min(max_tokens, 1000), # Tránh lỗi 402 khi credit quá thấp
+                    "max_tokens": eff_max_tokens,
                     "temperature": temperature,
                     "frequency_penalty": 0.2,
                     "presence_penalty": 0.2,
@@ -271,7 +276,10 @@ class LLMRouter:
                         key_state.mark_success()
                         return
                 except urllib.error.HTTPError as exc:
-                    if exc.code in (429, 402, 403):
+                    if exc.code == 402:
+                        logger.warning(f"OpenRouter Stream [{model_name}] HTTP 402, trying next candidate...")
+                        continue
+                    elif exc.code in (429, 403):
                         key_state.mark_exhausted(300, f"HTTP {exc.code}")
                         break
                     continue
@@ -347,13 +355,16 @@ class LLMRouter:
                         key_state.mark_exhausted(cooldown_seconds=300, reason=f"Gemini {exc.code} Quota Exceeded")
                         break  # Try next key
                     elif exc.code == 404:
-                        break  # Try next candidate model
+                        continue  # Try next candidate model
                     else:
                         logger.warning(f"Gemini [{model_name}] HTTP {exc.code}: {err_body[:100]}")
-                        break
+                        continue
                 except Exception as exc:
                     logger.warning(f"Gemini [{model_name}] Error: {exc}")
-                    break
+                    if "timed out" in str(exc).lower():
+                        key_state.mark_exhausted(cooldown_seconds=120, reason="Gemini Network Timeout")
+                        break
+                    continue
 
         return None
 
@@ -363,7 +374,7 @@ class LLMRouter:
         candidate_models = [self.ollama_model]
         try:
             req_tags = urllib.request.Request(f"{self.ollama_host}/api/tags")
-            with urllib.request.urlopen(req_tags, timeout=3) as resp:
+            with urllib.request.urlopen(req_tags, timeout=2) as resp:
                 tags_data = json.loads(resp.read().decode("utf-8"))
                 installed = [m["name"] for m in tags_data.get("models", [])]
                 if installed:
@@ -397,7 +408,7 @@ class LLMRouter:
                 method="POST"
             )
             try:
-                with urllib.request.urlopen(req, timeout=30) as resp:
+                with urllib.request.urlopen(req, timeout=5) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
                     msg = resp_data.get("message", {}).get("content", "")
                     if msg and msg.strip():

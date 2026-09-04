@@ -18,12 +18,12 @@ TARIFF_DB_PATH = os.path.join(os.path.dirname(__file__), "data", "tariff_databas
 
 # Regex nhận diện ý định tra cứu mã HS & tính thuế
 TAX_INTENT_PATTERNS = [
-    r"(t[iíì]nh|u[oớ]c\s*t[iíì]nh|d[uự]\s*to[aá]n|b[aả]ng\s*t[iíì]nh).*(thu[eế]|ti[eề]n\s*thu[eế])",
-    r"thu[eế].*(nh[aậ]p\s*kh[aẩ]u|xu[aấ]t\s*kh[aẩ]u|xnk|mfn|fta|form\s*[a-z0-9\.]+|vat|tt[dđ]b)",
+    r"(t[iíì]nh|u[oớ]c\s*t[iíì]nh|d[uự]\s*to[aá]n|b[aả]ng\s*t[iíì]nh|t[iíì]nh\s*to[aá]n).*(thu[eế]|ti[eề]n\s*thu[eế])",
     r"(tra\s*c[uứ]u|t[iì]m|g[oợ]i\s*[yý]|áp|x[aá]c\s*[đd][iị]nh).*(m[aã]\s*hs|hs\s*code|m[aã]\s*s[oố]\s*h[aà]ng)",
-    r"m[aã]\s*hs|hs\s*code|bi[eể]u\s*thu[eế]|thu[eế]\s*su[aấ]t",
-    r"(nh[aậ]p|xu[aấ]t)\s*kh[aẩ]u.*(bao\s*nhi[eê]u\s*thu[eế]|h[eế]t\s*bao\s*nhi[eê]u|m[aã]\s*g[iì]|thu[eế]\s*g[iì])",
-    r"(calculate|estimate|customs|tariff|import|export).*(tax|duty|tariff|rate|hs\s*code)",
+    r"m[aã]\s*hs\s*(c[uủ]a|cho)\s+[a-z0-9\s]+",
+    r"thu[eế]\s*su[aấ]t.*(mfn|fta|form\s*[a-z0-9\.]+|ưu\s*đãi|nh[aậ]p\s*kh[aẩ]u|xu[aấ]t\s*kh[aẩ]u)",
+    r"thu[eế]\s*su[aấ]t\s*(c[uủ]a|cho)\s+[a-z0-9\s]+",
+    r"(calculate|estimate|customs).*(tax|duty|tariff|rate|hs\s*code)",
     r"\b(customs\s*duty|import\s*tax|export\s*tax|tariff\s*rate)\b"
 ]
 
@@ -38,10 +38,32 @@ def load_tariff_db() -> Dict[str, Any]:
     return {"exchange_rates": {"USD": 25450, "EUR": 27200, "CNY": 3520, "VND": 1}, "commodities": []}
 
 def is_tax_intent(prompt: str) -> bool:
-    """Kiểm tra xem câu chat có ý định tra cứu mã HS hoặc tính thuế xuất nhập khẩu hay không."""
+    """Kiểm tra xem câu chat có ý định tra cứu mã HS hoặc tính thuế xuất nhập khẩu cho mặt hàng cụ thể hay không."""
     if not prompt:
         return False
     text = prompt.strip().lower()
+
+    # 1. Các câu hỏi lý thuyết, phân loại sắc thuế hoặc thủ tục pháp lý chung (KHÔNG PHẢI TÍNH THUẾ CHO ĐƠN HÀNG)
+    # Ví dụ: "khi xuất khẩu thì sẽ có những loại thuế gì", "hàng xuất khẩu chịu thuế gì", "thuế xuất khẩu là gì"
+    conceptual_patterns = [
+        r"(c[oó]\s*(nh[uữ]ng)?\s*(lo[aạ]i|s[aắ]c)?\s*thu[eế]\s*(g[iì]|n[aà]o))",
+        r"(g[oồ]m\s*(nh[uữ]ng)?\s*(lo[aạ]i|s[aắ]c)?\s*thu[eế]\s*(g[iì]|n[aà]o))",
+        r"(c[aá]c\s*(lo[aạ]i|s[aắ]c)\s*thu[eế])",
+        r"(thu[eế]\s*(xu[aấ]t|nh[aậ]p)\s*kh[aẩ]u\s*l[aà]\s*g[iì])",
+        r"(\b(l[aà]\s*g[iì]|nh[uư]\s*th[eế]\s*n[aà]o|quy\s*[đd][iị]nh\s*v[eề]|ch[ií]nh\s*s[aá]ch\s*v[eề]|th[uủ]\s*t[uụ]c\s*(ho[aà]n|mi[eễ]n|gi[aả]m)?\s*thu[eế]|nguy[eê]n\s*t[aắ]c|ph[uư][oơ]ng\s*ph[aá]p\s*t[iíì]nh\s*thu[eế]\s*theo\s*lu[aậ]t|[đd][oố]i\s*t[uư][oợ]ng\s*ch[iị]u\s*thu[eế]|[đd][oố]i\s*t[uư][oợ]ng\s*mi[eễ]n\s*thu[eế])\b)",
+    ]
+    # Nếu khớp câu hỏi lý thuyết và không chứa số lượng/đơn giá cụ thể để tính toán
+    has_order_calc = any(re.search(p, text, re.IGNORECASE) for p in [
+        r"(t[iíì]nh|u[oớ]c\s*t[iíì]nh|d[uự]\s*to[aá]n|b[aả]ng\s*t[iíì]nh).*(l[oô]\s*h[aà]ng|chi[eế]c|c[aá]i|kg|t[aấ]n|usd|eur|cho\s+m[aặ]t\s*h[aà]ng)",
+        r"\b\d+\s*(chi[eế]c|c[aá]i|kg|t[aấ]n|lon|chai|h[oộ]p|pcs|units?)\b",
+        r"\b\d+\s*(usd|\$|eur|€|cny)\b"
+    ])
+    
+    for cp in conceptual_patterns:
+        if re.search(cp, text, re.IGNORECASE) and not has_order_calc:
+            return False
+
+    # 2. Kiểm tra các mẫu ý định tính toán / tra cứu cụ thể
     for pattern in TAX_INTENT_PATTERNS:
         if re.search(pattern, text, re.IGNORECASE):
             return True
@@ -184,12 +206,12 @@ def match_hs_and_tariff(prompt: str, db_data: Optional[Dict[str, Any]] = None) -
     if best_item:
         return best_item
 
-    # 3. Fallback mặc định: Nồi chiên không dầu (thiết bị điện gia dụng thông dụng)
-    return commodities[0] if commodities else {
+    # 3. Fallback mặc định khi không tìm thấy tên mặt hàng: Hàng hóa thông dụng
+    return {
         "id": "generic_goods",
         "hs_code": "8516.79.90",
-        "name_vi": "Thiết bị điện gia dụng / Hàng hóa thông dụng",
-        "name_en": "Electrical appliances for domestic use",
+        "name_vi": "Hàng hóa thông dụng / Thiết bị tiêu dùng",
+        "name_en": "General goods / Common commodities",
         "unit": "Chiếc",
         "general_rate": 30.0,
         "mfn_rate": 20.0,

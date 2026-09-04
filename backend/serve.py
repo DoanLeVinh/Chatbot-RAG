@@ -700,6 +700,20 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
                     yield f"data: {json.dumps({'token': chunk_token}, ensure_ascii=False)}\n\n"
                     await asyncio.sleep(0.01)
 
+                tax_sources = [
+                    {
+                        "source": "Nghị định 26 2023 NĐ-CP Biểu thuế xuất khẩu thuế nhập khẩu ưu đãi.pdf",
+                        "article_refs": ["Phụ lục I, II"],
+                        "text": "Nghị định 26/2023/NĐ-CP ngày 31/05/2023 của Chính phủ về Biểu thuế xuất khẩu, Biểu thuế nhập khẩu ưu đãi, Danh mục hàng hóa và mức thuế tuyệt đối, thuế hỗn hợp."
+                    },
+                    {
+                        "source": "Luật Thuế xuất khẩu thuế nhập khẩu 2016.pdf",
+                        "article_refs": ["Điều 4", "Điều 5"],
+                        "text": "Luật Thuế xuất khẩu, thuế nhập khẩu số 107/2016/QH13 quy định đối tượng chịu thuế, người nộp thuế, căn cứ tính thuế và thời điểm tính thuế xuất nhập khẩu."
+                    }
+                ]
+                tax_citations = _build_legal_citations(tax_sources)
+
                 final_payload = {
                     "done": True,
                     "reply": reply_text,
@@ -707,7 +721,7 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
                     "hsCode": tax_summary.get("hsCode"),
                     "taxes": None,
                     "inspections": None,
-                    "citations": None,
+                    "citations": tax_citations,
                     "summaryPdf": None,
                     "quiz": None,
                     "tax": tax_summary
@@ -720,13 +734,16 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
                         db.add_message(
                             req.sessionId, 'ai', reply_text, timestamp,
                             hs_code=tax_summary.get("hsCode"),
-                            tax=tax_summary, user_id=effective_user_id
+                            tax=tax_summary, citations=tax_citations, user_id=effective_user_id
                         )
                     except Exception as db_err:
                         print(f"[Warning] Failed to persist tax message to SQLite: {db_err}")
 
                 yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
                 return
+
+            sources = []
+            citations = []
 
             # 1. Bắt đầu tìm kiếm
             yield f"data: {json.dumps({'stage': '🔍 Đang tìm kiếm văn bản pháp luật liên quan...'}, ensure_ascii=False)}\n\n"
@@ -753,6 +770,15 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
                     parents = await loop.run_in_executor(None, r.retrieve, req.prompt, 3)
                     children = parents
 
+            # Khởi tạo và stream danh sách trích dẫn ngay từ đầu để frontend luôn có đầy đủ căn cứ pháp lý
+            from retriever_local import _build_enriched_sources_from_parents
+            sources = _build_enriched_sources_from_parents(parents) if parents else []
+            early_citations = _build_legal_citations(sources) if sources else []
+            if early_citations:
+                citations = early_citations
+                yield f"data: {json.dumps({'citations': early_citations}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0)
+
             # 3. Tổng hợp LLM
             yield f"data: {json.dumps({'stage': '✍️ Đang tổng hợp câu trả lời...'}, ensure_ascii=False)}\n\n"
             await asyncio.sleep(0)
@@ -768,14 +794,6 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
                     if chunk["type"] == "text":
                         text = chunk["content"]
                         full_answer += text
-                        
-                        if chunk.get("sources") and not sources:
-                            sources = chunk["sources"]
-                            early_citations = _build_legal_citations(sources)
-                            if early_citations:
-                                yield f"data: {json.dumps({'citations': early_citations}, ensure_ascii=False)}\n\n"
-                                await asyncio.sleep(0)
-                        
                         payload = json.dumps({"token": text}, ensure_ascii=False)
                         yield f"data: {payload}\n\n"
                         await asyncio.sleep(0)
@@ -787,7 +805,8 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
             hs_code = _extract_hs_code(req.prompt + ' ' + full_answer)
             taxes = _extract_tax_info(full_answer)
             inspections = _extract_inspection_info(full_answer)
-            citations = _build_legal_citations(sources)
+            if not citations:
+                citations = _build_legal_citations(sources)
             taxes = _attach_citation_codes_to_taxes(taxes, citations)
 
             summary_pdf = {
