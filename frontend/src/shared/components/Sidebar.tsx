@@ -266,6 +266,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {userUsage.plan === 'pro' ? 'Logi Pro' : 'Miễn phí'}
             </span>
           </div>
+
+          {userUsage.plan === 'pro' && (
+            <div className="space-y-2 mt-2">
+              <div className="flex justify-between text-[11px] text-slate-600">
+                <span>Thời hạn còn lại:</span>
+                <span className="font-bold text-purple-700">
+                  {userUsage.daysRemaining !== undefined ? `${userUsage.daysRemaining} ngày` : '30 ngày'}
+                </span>
+              </div>
+              {userUsage.expiryFormatted && (
+                <div className="text-[10px] text-slate-400">
+                  Hết hạn: {userUsage.expiryFormatted}
+                </div>
+              )}
+              {userUsage.daysRemaining !== undefined && userUsage.daysRemaining <= 3 && (
+                <button 
+                  onClick={onUpgradeClick}
+                  className="w-full mt-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg shadow-xs transition-all cursor-pointer"
+                >
+                  Sắp hết hạn - Gia hạn Pro
+                </button>
+              )}
+            </div>
+          )}
           
           {userUsage.plan === 'free' && (
             <div className="space-y-3 mt-3">
@@ -297,7 +321,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               <button 
                 onClick={onUpgradeClick}
-                className="w-full mt-3 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-xs font-semibold rounded-lg shadow-sm hover:shadow-md transition-all"
+                className="w-full mt-3 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-xs font-semibold rounded-lg shadow-sm hover:shadow-md transition-all cursor-pointer"
               >
                 Nâng cấp Pro
               </button>

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { LogiChatLogo } from '../shared/components/LogiChatLogo';
+import DashboardOverview from './DashboardOverview';
 import UserManager from './UserManager';
 import DocumentManager from './DocumentManager';
 import AdminLogin from './AdminLogin';
-import { Users, FileText, LogOut, ArrowLeft } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, LogOut, ArrowLeft } from 'lucide-react';
 
 export default function AdminApp() {
   const navigate = useNavigate();
@@ -79,6 +80,7 @@ export default function AdminApp() {
   }
 
   const navItems = [
+    { path: '/admin/dashboard', label: 'Tổng quan Hệ thống', icon: LayoutDashboard },
     { path: '/admin/users', label: 'Tài khoản', icon: Users },
     { path: '/admin/docs', label: 'Tài liệu Pháp lý', icon: FileText },
   ];
@@ -139,7 +141,8 @@ export default function AdminApp() {
       {/* Main Content Area */}
       <div className="flex-1 overflow-auto relative">
         <Routes>
-          <Route path="/" element={<Navigate to="users" replace />} />
+          <Route path="/" element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardOverview />} />
           <Route path="users" element={<UserManager />} />
           <Route path="docs" element={<DocumentManager />} />
         </Routes>

@@ -151,10 +151,22 @@ export const PdfModal: React.FC<PdfModalProps> = ({
           )}
 
           {citations && citations.length > 0 && (
-            <div className="border p-3 rounded bg-white space-y-1">
-              <div className="font-bold text-blue-600">III. VĂN BẢN PHÁP LUẬT THAM CHIẾU</div>
+            <div className="border p-3 rounded bg-white space-y-2">
+              <div className="flex items-center justify-between font-bold text-blue-600">
+                <span>III. VĂN BẢN PHÁP LUẬT THAM CHIẾU & TOÀN VẸN DỮ LIỆU</span>
+                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  🛡️ SHA-256 Chống can thiệp
+                </span>
+              </div>
               {citations.map((c) => (
-                <div key={c.id}>- {c.code} — {c.title}</div>
+                <div key={c.id} className="text-xs flex items-center justify-between border-b border-slate-100 pb-1">
+                  <span className="truncate max-w-[400px]">- {c.code} — {c.title}</span>
+                  {c.sha256 && (
+                    <span className="font-mono text-[9px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
+                      sha256:{c.sha256.substring(0, 8)}...
+                    </span>
+                  )}
+                </div>
               ))}
             </div>
           )}

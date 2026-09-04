@@ -73,7 +73,10 @@ export default function App() {
   const [aiModel, setAiModel] = useState<'logi_fast' | 'logi_think'>('logi_fast');
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<'messages' | 'images' | 'manual'>('manual');
-  const [isPricingPageOpen, setIsPricingPageOpen] = useState(false);
+  const [isPricingPageOpen, setIsPricingPageOpen] = useState(() => {
+    return typeof window !== 'undefined' && window.location.pathname.startsWith('/pricing');
+  });
+  const [pendingUpgradeIntent, setPendingUpgradeIntent] = useState(false);
   const [activeQuizId, setActiveQuizId] = useState<string | null>(null);
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
   const [taxModalData, setTaxModalData] = useState<TaxCalculationResult | null>(null);
@@ -677,6 +680,42 @@ export default function App() {
     setActiveScreen('chat');
     // Immediately reload sessions with new token
     setTimeout(() => loadSessionsFromBackend(), 100);
+    fetchUserUsage();
+
+    if (pendingUpgradeIntent) {
+      setPendingUpgradeIntent(false);
+      setTimeout(() => setIsPricingPageOpen(true), 150);
+    }
+  };
+
+  const handleBackFromPricing = () => {
+    setIsPricingPageOpen(false);
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/pricing')) {
+      window.history.pushState({}, '', '/');
+    }
+  };
+
+  const handleOpenUpgrade = () => {
+    setIsUpgradeModalOpen(false);
+    if (!currentUser) {
+      setPendingUpgradeIntent(true);
+      setAuthModal({ isOpen: true, mode: 'register' });
+    } else {
+      setIsPricingPageOpen(true);
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/pricing')) {
+        window.history.pushState({}, '', '/pricing');
+      }
+    }
+  };
+
+  const handlePaymentSuccess = () => {
+    fetchUserUsage();
+    if (currentUser) {
+      setCurrentUser({ ...currentUser, subscriptionPlan: 'pro' } as any);
+    }
+    setTimeout(() => {
+      handleBackFromPricing();
+    }, 2000);
   };
 
   const handleLogout = () => {
@@ -930,15 +969,21 @@ export default function App() {
           isOpen={isUpgradeModalOpen}
           reason={upgradeReason}
           onClose={() => setIsUpgradeModalOpen(false)}
-          onUpgrade={() => setIsPricingPageOpen(true)}
+          onUpgrade={handleOpenUpgrade}
         />
       </div>
 
       {isPricingPageOpen && (
         <div className="fixed inset-0 z-[100] bg-white dark:bg-slate-950 overflow-y-auto">
           <PricingPage 
-            onBack={() => setIsPricingPageOpen(false)} 
+            onBack={handleBackFromPricing} 
             userId={currentUser?.id || ''} 
+            onRequireAuth={() => {
+              setIsPricingPageOpen(false);
+              setPendingUpgradeIntent(true);
+              setAuthModal({ isOpen: true, mode: 'register' });
+            }}
+            onPaymentSuccess={handlePaymentSuccess}
           />
         </div>
       )}

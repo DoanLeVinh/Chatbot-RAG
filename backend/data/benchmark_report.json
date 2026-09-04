@@ -1,0 +1,40 @@
+{
+  "timestamp": "2026-09-04 17:39:48",
+  "total_queries": 30,
+  "corpus_nodes": 9228,
+  "corpus_parent_chunks": 1081,
+  "results": {
+    "bm25_only": {
+      "name": "1. BM25 Only (Lexical Keyword)",
+      "hit_rate_at_3": 33.3,
+      "hit_rate_at_5": 40.0,
+      "mrr_at_5": 0.269,
+      "precision_at_5": 17.3,
+      "avg_latency_ms": 56.0
+    },
+    "dense_only": {
+      "name": "2. Dense Vector Only (FAISS BGE-M3)",
+      "hit_rate_at_3": 33.3,
+      "hit_rate_at_5": 36.7,
+      "mrr_at_5": 0.251,
+      "precision_at_5": 13.3,
+      "avg_latency_ms": 73.0
+    },
+    "hybrid_no_rerank": {
+      "name": "3. Hybrid Search (BM25 + Dense RRF)",
+      "hit_rate_at_3": 33.3,
+      "hit_rate_at_5": 43.3,
+      "mrr_at_5": 0.227,
+      "precision_at_5": 17.3,
+      "avg_latency_ms": 132.5
+    },
+    "hybrid_rerank": {
+      "name": "4. Hybrid + Re-ranker (Production Pipeline)",
+      "hit_rate_at_3": 70.0,
+      "hit_rate_at_5": 70.0,
+      "mrr_at_5": 0.572,
+      "precision_at_5": 40.6,
+      "avg_latency_ms": 957.5
+    }
+  }
+}

@@ -99,11 +99,11 @@ export const ReferencePanel: React.FC<ReferencePanelProps> = ({
 
                       {/* SHA-256 Integrity Badge */}
                       <span
-                        className="inline-flex items-center gap-1 text-[9px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200"
-                        title="Đã xác thực"
+                        className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60 cursor-help"
+                        title={cite.sha256 ? `Toàn vẹn SHA-256: ${cite.sha256}\nVăn bản pháp luật gốc đã được bảo chứng tính bất biến, không bị sửa đổi trái phép.` : "Đã xác thực tính toàn vẹn SHA-256"}
                       >
                         <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                        <span>SHA-256</span>
+                        <span>SHA-256 Verified</span>
                       </span>
                     </div>
 

@@ -1,0 +1,242 @@
+[
+  {
+    "id": "Q01",
+    "category": "customs_clearance",
+    "query": "Thời hạn nộp tờ khai hải quan đối với hàng hóa nhập khẩu thương mại được quy định như thế nào?",
+    "expected_sources": ["Luật Hải quan", "54/2014/QH13"],
+    "expected_articles": ["Điều 25"],
+    "ground_truth_answer": "Đối với hàng hóa nhập khẩu, tờ khai hải quan được nộp trước ngày hàng hóa đến cửa khẩu hoặc trong thời hạn 30 ngày kể từ ngày hàng hóa đến cửa khẩu theo quy định tại Điều 25 Luật Hải quan số 54/2014/QH13."
+  },
+  {
+    "id": "Q02",
+    "category": "customs_clearance",
+    "query": "Hồ sơ hải quan đối với hàng hóa nhập khẩu bao gồm những chứng từ cơ bản nào?",
+    "expected_sources": ["Thông tư 38", "38/2015/TT-BTC", "Thông tư 39/2018"],
+    "expected_articles": ["Điều 16"],
+    "ground_truth_answer": "Hồ sơ hải quan nhập khẩu gồm: Tờ khai hải quan, Hóa đơn thương mại (Commercial Invoice), Chứng từ vận tải (Bill of Lading), Bảng kê lâm sản (nếu có), Giấy phép nhập khẩu (nếu có), Giấy thông báo miễn kiểm tra hoặc thông báo kết quả kiểm tra chuyên ngành, Tờ khai trị giá (nếu có), Chứng nhận xuất xứ hàng hóa (C/O) theo Điều 16 Thông tư 38/2015/TT-BTC (sửa đổi tại Thông tư 39/2018/TT-BTC)."
+  },
+  {
+    "id": "Q03",
+    "category": "customs_clearance",
+    "query": "Ý nghĩa của ba luồng phân luồng hải quan Xanh, Vàng, Đỏ trong thủ tục thông quan?",
+    "expected_sources": ["Luật Hải quan", "Nghị định 08/2015", "Thông tư 38"],
+    "expected_articles": ["Điều 32", "Điều 29"],
+    "ground_truth_answer": "Luồng Xanh: Miễn kiểm tra hồ sơ giấy và miễn kiểm tra thực tế hàng hóa, thông quan ngay; Luồng Vàng: Kiểm tra hồ sơ hải quan chi tiết; Luồng Đỏ: Kiểm tra chi tiết hồ sơ và kiểm tra thực tế hàng hóa bằng máy soi hoặc thủ công."
+  },
+  {
+    "id": "Q04",
+    "category": "customs_clearance",
+    "query": "Người khai hải quan được khai bổ sung hồ sơ hải quan trong những trường hợp nào?",
+    "expected_sources": ["Luật Hải quan", "Thông tư 38", "Điều 20"],
+    "expected_articles": ["Điều 29", "Điều 20"],
+    "ground_truth_answer": "Khai bổ sung trước thời điểm thông quan hàng hóa; sau khi thông quan trong thời hạn 60 ngày kể từ ngày thông quan nhưng trước khi cơ quan hải quan quyết định kiểm tra sau thông quan, thanh tra theo Điều 29 Luật Hải quan và Điều 20 Thông tư 38/2015/TT-BTC."
+  },
+  {
+    "id": "Q05",
+    "category": "customs_clearance",
+    "query": "Địa điểm làm thủ tục hải quan được quy định ở đâu?",
+    "expected_sources": ["Luật Hải quan", "Điều 22"],
+    "expected_articles": ["Điều 22"],
+    "ground_truth_answer": "Địa điểm làm thủ tục hải quan là nơi cơ quan hải quan tiếp nhận, đăng ký và kiểm tra hồ sơ hải quan, kiểm tra thực tế hàng hóa, phương tiện vận tải tại trụ sở Cục Hải quan, Chi cục Hải quan cửa khẩu, Chi cục Hải quan ngoài cửa khẩu theo Điều 22 Luật Hải quan."
+  },
+  {
+    "id": "Q06",
+    "category": "customs_clearance",
+    "query": "Thời hạn cơ quan hải quan hoàn thành kiểm tra hồ sơ và kiểm tra thực tế hàng hóa là bao lâu?",
+    "expected_sources": ["Luật Hải quan", "Điều 23"],
+    "expected_articles": ["Điều 23"],
+    "ground_truth_answer": "Hoàn thành kiểm tra hồ sơ chậm nhất 02 giờ làm việc kể từ thời điểm tiếp nhận đầy đủ hồ sơ; hoàn thành kiểm tra thực tế hàng hóa chậm nhất 08 giờ làm việc kể từ thời điểm người khai hải quan xuất trình đầy đủ hàng hóa theo Điều 23 Luật Hải quan 54/2014/QH13."
+  },
+  {
+    "id": "Q07",
+    "category": "tariffs_and_co",
+    "query": "Thời điểm tính thuế xuất khẩu, thuế nhập khẩu là thời điểm nào?",
+    "expected_sources": ["Luật Thuế xuất khẩu, thuế nhập khẩu", "107/2016/QH13"],
+    "expected_articles": ["Điều 8"],
+    "ground_truth_answer": "Thời điểm tính thuế xuất khẩu, thuế nhập khẩu là thời điểm đăng ký tờ khai hải quan theo quy định tại Điều 8 Luật Thuế xuất khẩu, thuế nhập khẩu số 107/2016/QH13."
+  },
+  {
+    "id": "Q08",
+    "category": "tariffs_and_co",
+    "query": "Điều kiện để hàng hóa nhập khẩu được áp dụng thuế suất ưu đãi đặc biệt theo các hiệp định FTA là gì?",
+    "expected_sources": ["Luật Thuế xuất khẩu, thuế nhập khẩu", "Nghị định 31/2018", "Thông tư 38"],
+    "expected_articles": ["Điều 5", "Điều 15"],
+    "ground_truth_answer": "Hàng hóa thuộc Biểu thuế ưu đãi đặc biệt ban hành; được nhập khẩu từ nước có thỏa thuận ưu đãi đặc biệt với Việt Nam; đáp ứng quy định về xuất xứ hàng hóa (có C/O hợp lệ) và được vận chuyển trực tiếp theo quy định."
+  },
+  {
+    "id": "Q09",
+    "category": "tariffs_and_co",
+    "query": "Thời hạn nộp chứng từ chứng nhận xuất xứ hàng hóa (C/O) đối với hàng nhập khẩu được quy định như thế nào?",
+    "expected_sources": ["Thông tư 38", "Thông tư 39/2018", "Thông tư 33/2023"],
+    "expected_articles": ["Điều 16", "Điều 4"],
+    "ground_truth_answer": "Người khai hải quan nộp C/O tại thời điểm làm thủ tục hải quan; trường hợp chưa có C/O tại thời điểm làm thủ tục hải quan thì phải khai báo nợ C/O trên tờ khai và nộp bổ sung trong thời hạn tối đa 30 ngày kể từ ngày đăng ký tờ khai."
+  },
+  {
+    "id": "Q10",
+    "category": "tariffs_and_co",
+    "query": "Các phương pháp xác định trị giá hải quan đối với hàng hóa nhập khẩu gồm những phương pháp nào?",
+    "expected_sources": ["Thông tư 39/2015", "Nghị định 08/2015", "Thông tư 60/2019"],
+    "expected_articles": ["Điều 5", "Điều 6", "Điều 86"],
+    "ground_truth_answer": "Gồm 6 phương pháp tuần tự: 1. Phương pháp trị giá giao dịch; 2. Trị giá giao dịch của hàng hóa giống hệt; 3. Trị giá giao dịch của hàng hóa tương tự; 4. Phương pháp trị giá khấu trừ; 5. Phương pháp trị giá tính toán; 6. Phương pháp suy luận."
+  },
+  {
+    "id": "Q11",
+    "category": "tariffs_and_co",
+    "query": "Trường hợp nào hàng hóa nhập khẩu được miễn thuế xuất khẩu, thuế nhập khẩu?",
+    "expected_sources": ["Luật Thuế xuất khẩu, thuế nhập khẩu", "Nghị định 134/2016"],
+    "expected_articles": ["Điều 16"],
+    "ground_truth_answer": "Hàng gia công, nguyên liệu nhập khẩu để sản xuất hàng xuất khẩu, hàng tạm nhập tái xuất, quà biếu tặng trong định mức, hàng hóa nhập khẩu tạo tài sản cố định của dự án ưu đãi đầu tư theo Điều 16 Luật Thuế XNK số 107/2016/QH13."
+  },
+  {
+    "id": "Q12",
+    "category": "tariffs_and_co",
+    "query": "Thời hạn nộp thuế đối với hàng hóa nhập khẩu thông thường không được bảo lãnh là khi nào?",
+    "expected_sources": ["Luật Quản lý thuế", "Luật Thuế xuất khẩu, thuế nhập khẩu"],
+    "expected_articles": ["Điều 9"],
+    "ground_truth_answer": "Người nộp thuế phải nộp thuế trước khi thông quan hoặc giải phóng hàng hóa, trừ trường hợp được tổ chức tín dụng bảo lãnh số tiền thuế phải nộp theo Điều 9 Luật Thuế XNK 107/2016/QH13."
+  },
+  {
+    "id": "Q13",
+    "category": "hs_classification",
+    "query": "Nguyên tắc 1 trong 6 quy tắc chung giải thích phân loại hàng hóa theo Danh mục hàng hóa XNK Việt Nam (GIR)?",
+    "expected_sources": ["Thông tư 31/2022", "Thông tư 65/2017", "GIR 1"],
+    "expected_articles": ["Quy tắc 1"],
+    "ground_truth_answer": "Tên của các Phần, Chương hoặc Phân chương chỉ nhằm mục đích dễ tra cứu. Để phân loại phải căn cứ vào nội dung của từng nhóm và chú giải của Phần, Chương tương ứng theo Quy tắc tổng quát 1 (GIR 1)."
+  },
+  {
+    "id": "Q14",
+    "category": "hs_classification",
+    "query": "Thủ tục xác định trước mã số hàng hóa (HS Code) được nộp trước bao nhiêu ngày?",
+    "expected_sources": ["Nghị định 08/2015", "Thông tư 38/2015"],
+    "expected_articles": ["Điều 24", "Điều 7"],
+    "ground_truth_answer": "Hồ sơ đề nghị xác định trước mã số phải gửi đến Tổng cục Hải quan trước ít nhất 60 ngày trước khi xuất khẩu, nhập khẩu lô hàng theo quy định tại Điều 24 Nghị định 08/2015/NĐ-CP."
+  },
+  {
+    "id": "Q15",
+    "category": "hs_classification",
+    "query": "Cấu trúc mã số HS trong Biểu thuế xuất nhập khẩu Việt Nam gồm bao nhiêu chữ số?",
+    "expected_sources": ["Thông tư 31/2022", "Danh mục hàng hóa XNK"],
+    "expected_articles": ["Danh mục HS"],
+    "ground_truth_answer": "Biểu thuế xuất nhập khẩu Việt Nam áp dụng Danh mục HS cấp độ 8 chữ số (2 số đầu: Chương, 4 số: Nhóm, 6 số: Phân nhóm quốc tế, 8 số: Phân nhóm AHTN cấp độ quốc gia/ASEAN)."
+  },
+  {
+    "id": "Q16",
+    "category": "hs_classification",
+    "query": "Quy tắc 2b trong Phân loại hàng hóa giải thích về hỗn hợp và hợp chất như thế nào?",
+    "expected_sources": ["Thông tư 31/2022", "GIR 2"],
+    "expected_articles": ["Quy tắc 2b"],
+    "ground_truth_answer": "Một nguyên liệu hay một chất được phân loại vào một nhóm nào đó thì hỗn hợp hay hợp chất của nguyên liệu hoặc chất đó với các nguyên liệu hoặc chất khác cũng thuộc nhóm đó; phân loại theo Quy tắc 3 nếu có từ hai nhóm trở lên."
+  },
+  {
+    "id": "Q17",
+    "category": "hs_classification",
+    "query": "Văn bản xác định trước mã số hàng hóa của Tổng cục Hải quan có hiệu lực trong bao lâu?",
+    "expected_sources": ["Nghị định 08/2015", "Thông tư 38"],
+    "expected_articles": ["Điều 24"],
+    "ground_truth_answer": "Văn bản thông báo kết quả xác định trước mã số có hiệu lực tối đa không quá 03 năm kể từ ngày ký theo quy định tại Điều 24 Nghị định 08/2015/NĐ-CP."
+  },
+  {
+    "id": "Q18",
+    "category": "hs_classification",
+    "query": "Quy tắc 3a (Quy tắc chi tiết nhất) quy định ưu tiên phân loại hàng hóa như thế nào?",
+    "expected_sources": ["Thông tư 31/2022", "GIR 3a"],
+    "expected_articles": ["Quy tắc 3a"],
+    "ground_truth_answer": "Nhóm có mô tả cụ thể nhất sẽ được ưu tiên hơn các nhóm có mô tả khái quát khi phân loại theo Quy tắc 3a."
+  },
+  {
+    "id": "Q19",
+    "category": "permits_conditions",
+    "query": "Quy định về quản lý đối với hàng hóa cấm xuất khẩu, cấm nhập khẩu tại Nghị định 69/2018/NĐ-CP?",
+    "expected_sources": ["Nghị định 69/2018", "Luật Quản lý ngoại thương"],
+    "expected_articles": ["Điều 5", "Phụ lục I"],
+    "ground_truth_answer": "Hàng hóa cấm xuất khẩu, cấm nhập khẩu không được phép xuất khẩu, nhập khẩu trừ trường hợp đặc biệt được Thủ tướng Chính phủ cho phép theo quy định tại Điều 5 Nghị định 69/2018/NĐ-CP."
+  },
+  {
+    "id": "Q20",
+    "category": "permits_conditions",
+    "query": "Hàng hóa nhập khẩu phải kiểm tra chuyên ngành được đưa về địa điểm bảo quản trong trường hợp nào?",
+    "expected_sources": ["Thông tư 38", "Thông tư 39/2018", "Nghị định 08/2015"],
+    "expected_articles": ["Điều 32"],
+    "ground_truth_answer": "Hàng hóa phải kiểm tra chuyên ngành được cơ quan hải quan cho phép đưa về địa điểm bảo quản hoặc kho bãi của doanh nghiệp nếu đáp ứng điều kiện niêm phong, giám sát hải quan theo Điều 32 Thông tư 38/2015/TT-BTC (sửa đổi tại TT 39/2018)."
+  },
+  {
+    "id": "Q21",
+    "category": "permits_conditions",
+    "query": "Thời hạn tái xuất đối với hàng hóa tạm nhập tái xuất phục vụ hội chợ, triển lãm thương mại?",
+    "expected_sources": ["Luật Quản lý ngoại thương", "Nghị định 69/2018"],
+    "expected_articles": ["Điều 15"],
+    "ground_truth_answer": "Hàng hóa tạm nhập tái xuất tham dự hội chợ, triển lãm phải được tái xuất trong thời hạn 30 ngày kể từ ngày kết thúc hội chợ, triển lãm theo quy định."
+  },
+  {
+    "id": "Q22",
+    "category": "permits_conditions",
+    "query": "Nhãn hàng hóa bắt buộc đối với hàng hóa nhập khẩu lưu thông tại Việt Nam phải thể hiện những thông tin gì?",
+    "expected_sources": ["Nghị định 43/2017", "Nghị định 111/2021"],
+    "expected_articles": ["Điều 10"],
+    "ground_truth_answer": "Nhãn hàng hóa nhập khẩu phải thể hiện tên hàng hóa, tên và địa chỉ của tổ chức cá nhân chịu trách nhiệm về hàng hóa, xuất xứ hàng hóa (Origin), và nhãn phụ bằng tiếng Việt theo Nghị định 43/2017/NĐ-CP và NĐ 111/2021/NĐ-CP."
+  },
+  {
+    "id": "Q23",
+    "category": "permits_conditions",
+    "query": "Cơ chế một cửa quốc gia (NSW) trong kiểm tra chuyên ngành có vai trò gì?",
+    "expected_sources": ["Luật Hải quan", "Nghị định 08/2015"],
+    "expected_articles": ["Điều 74"],
+    "ground_truth_answer": "Cơ chế một cửa quốc gia cho phép người khai nộp chứng từ điện tử một lần đến cổng thông tin để các bộ, ngành kiểm tra chuyên ngành và trả kết quả điện tử cho cơ quan hải quan theo Điều 74 Luật Hải quan."
+  },
+  {
+    "id": "Q24",
+    "category": "permits_conditions",
+    "query": "Hàng hóa thuộc diện kiểm dịch thực vật, động vật cần xuất trình chứng thư kiểm dịch tại thời điểm nào?",
+    "expected_sources": ["Thông tư 38/2015", "Luật Thú y", "Luật Bảo vệ thực vật"],
+    "expected_articles": ["Điều 16"],
+    "ground_truth_answer": "Phải đăng ký kiểm dịch trước khi hàng đến và nộp Giấy chứng nhận kiểm dịch hoặc Thông báo kết quả kiểm tra trước khi thông quan hàng hóa theo quy định tại Điều 16 Thông tư 38/2015/TT-BTC."
+  },
+  {
+    "id": "Q25",
+    "category": "post_clearance_penalties",
+    "query": "Thời hiệu kiểm tra sau thông quan đối với hàng hóa đã được thông quan là bao nhiêu năm?",
+    "expected_sources": ["Luật Hải quan", "54/2014/QH13"],
+    "expected_articles": ["Điều 78"],
+    "ground_truth_answer": "Kiểm tra sau thông quan được thực hiện trong thời hạn 05 năm kể từ ngày đăng ký tờ khai hải quan theo quy định tại Điều 78 Luật Hải quan số 54/2014/QH13."
+  },
+  {
+    "id": "Q26",
+    "category": "post_clearance_penalties",
+    "query": "Các trường hợp cơ quan hải quan tiến hành kiểm tra sau thông quan tại trụ sở doanh nghiệp?",
+    "expected_sources": ["Luật Hải quan", "Nghị định 08/2015"],
+    "expected_articles": ["Điều 78", "Điều 79"],
+    "ground_truth_answer": "Kiểm tra khi có dấu hiệu vi phạm pháp luật hải quan; kiểm tra theo kế hoạch tuân thủ pháp luật hải quan; và kiểm tra chọn mẫu đánh giá rủi ro theo Điều 78 Luật Hải quan."
+  },
+  {
+    "id": "Q27",
+    "category": "post_clearance_penalties",
+    "query": "Mức xử phạt đối với hành vi khai sai dẫn đến thiếu số tiền thuế phải nộp là bao nhiêu phần trăm?",
+    "expected_sources": ["Nghị định 128/2020", "Luật Quản lý thuế"],
+    "expected_articles": ["Điều 9"],
+    "ground_truth_answer": "Phạt 20% số tiền thuế khai thiếu hoặc số tiền thuế được miễn, giảm, hoàn, không thu cao hơn quy định đối với hành vi khai sai theo Điều 9 Nghị định 128/2020/NĐ-CP."
+  },
+  {
+    "id": "Q28",
+    "category": "post_clearance_penalties",
+    "query": "Hành vi không nộp tờ khai hải quan đúng thời hạn bị xử phạt vi phạm hành chính như thế nào?",
+    "expected_sources": ["Nghị định 128/2020/NĐ-CP"],
+    "expected_articles": ["Điều 7"],
+    "ground_truth_answer": "Bị phạt tiền từ 1.000.000 đồng đến 2.000.000 đồng đối với hành vi không nộp hoặc nộp tờ khai không đúng thời hạn quy định theo Điều 7 Nghị định 128/2020/NĐ-CP."
+  },
+  {
+    "id": "Q29",
+    "category": "post_clearance_penalties",
+    "query": "Trường hợp nào người khai hải quan bị cơ quan hải quan ấn định thuế?",
+    "expected_sources": ["Luật Quản lý thuế", "38/2019/QH14", "Thông tư 38"],
+    "expected_articles": ["Điều 52"],
+    "ground_truth_answer": "Cơ quan hải quan ấn định thuế khi người khai khai sai căn cứ tính thuế, không khai hoặc khai không đầy đủ, từ chối cung cấp chứng từ sổ sách, không chứng minh được tính chính xác của trị giá giao dịch theo Điều 52 Luật Quản lý thuế 38/2019/QH14."
+  },
+  {
+    "id": "Q30",
+    "category": "post_clearance_penalties",
+    "query": "Quyền của người khai hải quan khi nhận quyết định kiểm tra sau thông quan là gì?",
+    "expected_sources": ["Luật Hải quan", "Điều 80"],
+    "expected_articles": ["Điều 80"],
+    "ground_truth_answer": "Được giải trình, cung cấp chứng từ tài liệu chứng minh; từ chối kiểm tra nếu không có quyết định kiểm tra hợp lệ; khiếu nại, khởi kiện quyết định xử lý của cơ quan hải quan theo Điều 80 Luật Hải quan."
+  }
+]

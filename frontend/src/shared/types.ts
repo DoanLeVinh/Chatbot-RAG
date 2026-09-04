@@ -9,6 +9,8 @@ export interface LegalCitation {
   fullText?: string;
   pdfUrl?: string;
   pageNumber?: number;
+  sha256?: string;
+  validityStatus?: string;
 }
 
 export interface Attachment {
@@ -213,6 +215,8 @@ export interface ChatSession {
 export interface UserUsage {
   plan: 'free' | 'pro';
   expiry: string | null;
+  daysRemaining?: number;
+  expiryFormatted?: string;
   usage: {
     messages: number;
     images: number;
