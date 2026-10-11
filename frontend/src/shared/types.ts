@@ -81,6 +81,9 @@ export interface ChatMessage {
   attachment?: Attachment;
   tax?: TaxCalculationResult;
   caseStudy?: CaseStudyDetail;
+  feedback?: 'like' | 'dislike' | null;
+  feedbackReason?: string;
+  feedbackComment?: string;
 }
 
 export interface CaseStudyDocument {

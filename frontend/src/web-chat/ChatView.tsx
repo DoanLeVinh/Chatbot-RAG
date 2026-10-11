@@ -7,6 +7,7 @@ import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, Pa
 import { Zap, BrainCircuit, BookOpenCheck, ArrowRight } from 'lucide-react';
 import { InChatTaxCard } from '../features/tax/InChatTaxCard';
 import { InChatCaseStudyCard } from '../features/case_study/InChatCaseStudyCard';
+import { getAuthHeaders } from '../shared/utils';
 
 const getOrderedCitations = (msg: ChatMessage) => {
   if (!msg.citations || msg.citations.length === 0) return { processedText: msg.text, orderedCitations: [] };
@@ -97,6 +98,89 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+
+  // Message Feedback State (Thumbs Up / Down & Quality Control)
+  const [feedbacks, setFeedbacks] = useState<Record<string, { rating: 'like' | 'dislike'; reason?: string; comment?: string }>>({});
+  const [feedbackModal, setFeedbackModal] = useState<{ isOpen: boolean; messageId: string | null }>({ isOpen: false, messageId: null });
+  const [dislikeReason, setDislikeReason] = useState<string>('Thông tin chưa chính xác / Ảo giác');
+  const [dislikeComment, setDislikeComment] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
+  useEffect(() => {
+    const initialFeedbacks: Record<string, { rating: 'like' | 'dislike'; reason?: string; comment?: string }> = {};
+    session.messages.forEach((m) => {
+      if (m.feedback) {
+        initialFeedbacks[m.id] = {
+          rating: m.feedback,
+          reason: m.feedbackReason,
+          comment: m.feedbackComment,
+        };
+      }
+    });
+    setFeedbacks((prev) => ({ ...initialFeedbacks, ...prev }));
+  }, [session.id, session.messages]);
+
+  const showFeedbackToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  const handleLike = async (messageId: string) => {
+    const isCurrentlyLiked = feedbacks[messageId]?.rating === 'like';
+    if (isCurrentlyLiked) return;
+
+    setFeedbacks((prev) => ({
+      ...prev,
+      [messageId]: { rating: 'like' },
+    }));
+    showFeedbackToast('Cảm ơn bạn! Đánh giá giúp cải thiện độ chính xác của AI.');
+
+    try {
+      await fetch(`/api/messages/${messageId}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ rating: 'like' }),
+      });
+    } catch (err) {
+      console.error('Lỗi gửi feedback:', err);
+    }
+  };
+
+  const handleDislikeClick = (messageId: string) => {
+    setFeedbackModal({ isOpen: true, messageId });
+    setDislikeReason('Thông tin chưa chính xác / Ảo giác');
+    setDislikeComment('');
+  };
+
+  const handleSubmitDislike = async () => {
+    if (!feedbackModal.messageId) return;
+    const msgId = feedbackModal.messageId;
+    setIsSubmittingFeedback(true);
+
+    setFeedbacks((prev) => ({
+      ...prev,
+      [msgId]: { rating: 'dislike', reason: dislikeReason, comment: dislikeComment },
+    }));
+
+    try {
+      await fetch(`/api/messages/${msgId}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          rating: 'dislike',
+          reason: dislikeReason,
+          comment: dislikeComment,
+        }),
+      });
+      showFeedbackToast('Đã ghi nhận góp ý của bạn để đội ngũ cải tiến hệ thống!');
+    } catch (err) {
+      console.error('Lỗi gửi feedback:', err);
+    } finally {
+      setIsSubmittingFeedback(false);
+      setFeedbackModal({ isOpen: false, messageId: null });
+    }
+  };
 
   const handleCopyText = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -608,11 +692,39 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       <SpeakerHigh size={16} weight={speakingMsgId === msg.id ? 'fill' : 'regular'} />
                     </button>
                     <div className="w-px h-4 bg-slate-200 mx-1"></div>
-                    <button className="text-slate-400 hover:text-blue-600 p-1.5 rounded-lg hover:bg-blue-50 transition-colors" title="Câu trả lời tốt">
-                      <ThumbsUp size={16} />
+                    
+                    {/* Nút Thumbs Up (Hài lòng) */}
+                    <button
+                      type="button"
+                      onClick={() => handleLike(msg.id)}
+                      className={`p-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        feedbacks[msg.id]?.rating === 'like'
+                          ? 'text-blue-600 bg-blue-100 font-bold shadow-xs'
+                          : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'
+                      }`}
+                      title="Câu trả lời hữu ích (Hài lòng)"
+                    >
+                      <ThumbsUp size={16} weight={feedbacks[msg.id]?.rating === 'like' ? 'fill' : 'regular'} />
+                      {feedbacks[msg.id]?.rating === 'like' && (
+                        <span className="text-[11px] font-semibold text-blue-700">Hữu ích</span>
+                      )}
                     </button>
-                    <button className="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Câu trả lời chưa tốt">
-                      <ThumbsDown size={16} />
+
+                    {/* Nút Thumbs Down (Chưa hài lòng & Góp ý) */}
+                    <button
+                      type="button"
+                      onClick={() => handleDislikeClick(msg.id)}
+                      className={`p-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        feedbacks[msg.id]?.rating === 'dislike'
+                          ? 'text-rose-600 bg-rose-100 font-bold shadow-xs'
+                          : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                      }`}
+                      title="Câu trả lời chưa tốt (Góp ý cải thiện)"
+                    >
+                      <ThumbsDown size={16} weight={feedbacks[msg.id]?.rating === 'dislike' ? 'fill' : 'regular'} />
+                      {feedbacks[msg.id]?.rating === 'dislike' && (
+                        <span className="text-[11px] font-semibold text-rose-700">Đã góp ý</span>
+                      )}
                     </button>
                   </div>
 
@@ -742,6 +854,100 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Toast thông báo đánh giá thành công */}
+      {toastMessage && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 text-white backdrop-blur-md px-4 py-2.5 rounded-2xl shadow-xl border border-white/10 text-xs font-medium flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <span className="text-emerald-400 font-bold">✓</span>
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Modal góp ý chi tiết khi bấm Thumbs Down */}
+      {feedbackModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative animate-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                <ThumbsDown size={18} weight="fill" className="text-rose-600" />
+                Góp ý chất lượng câu trả lời
+              </h3>
+              <button
+                type="button"
+                onClick={() => setFeedbackModal({ isOpen: false, messageId: null })}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-full hover:bg-slate-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 mb-3">
+              Ý kiến của bạn là dữ liệu quý báu giúp hệ thống RAG & AI hoàn thiện khả năng tra cứu pháp luật hải quan.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  Lý do bạn chưa hài lòng:
+                </label>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {[
+                    'Thông tin chưa chính xác / Ảo giác',
+                    'Căn cứ pháp lý chưa đủ hoặc hết hiệu lực',
+                    'Khó hiểu / Trả lời chưa đúng trọng tâm',
+                    'Biểu thuế hoặc mã HS gợi ý không phù hợp',
+                    'Lý do khác...',
+                  ].map((reason) => (
+                    <button
+                      key={reason}
+                      type="button"
+                      onClick={() => setDislikeReason(reason)}
+                      className={`text-left px-3 py-2 rounded-xl text-xs font-medium border transition-all cursor-pointer ${
+                        dislikeReason === reason
+                          ? 'bg-rose-50 border-rose-400 text-rose-800 font-bold shadow-xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {dislikeReason === reason ? '● ' : '○ '} {reason}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Ghi chú chi tiết (tùy chọn):
+                </label>
+                <textarea
+                  value={dislikeComment}
+                  onChange={(e) => setDislikeComment(e.target.value)}
+                  placeholder="Ví dụ: Theo Thông tư 39/2018 thì nội dung này đã được sửa đổi tại Điều 16..."
+                  rows={3}
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white resize-none"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setFeedbackModal({ isOpen: false, messageId: null })}
+                  className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Bỏ qua
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmittingFeedback}
+                  onClick={handleSubmitDislike}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 text-white text-xs font-bold hover:bg-rose-700 shadow-md active:scale-95 transition-all cursor-pointer disabled:opacity-60"
+                >
+                  {isSubmittingFeedback ? 'Đang gửi...' : 'Gửi góp ý'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-};
+};

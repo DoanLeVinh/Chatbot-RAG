@@ -67,8 +67,18 @@ def init_db():
         if "subscription_expiry" not in user_cols:
             cursor.execute("ALTER TABLE users ADD COLUMN subscription_expiry DATETIME;")
 
-
-
+        # Table: password_resets
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS password_resets (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                otp_code TEXT NOT NULL,
+                expires_at DATETIME NOT NULL,
+                used INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);")
         # Table: sessions
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
@@ -244,6 +254,28 @@ def init_db():
             cursor.execute("ALTER TABLE messages ADD COLUMN tax_json TEXT;")
         if "case_study_json" not in msg_cols:
             cursor.execute("ALTER TABLE messages ADD COLUMN case_study_json TEXT;")
+        if "feedback" not in msg_cols:
+            cursor.execute("ALTER TABLE messages ADD COLUMN feedback TEXT;")
+        if "feedback_reason" not in msg_cols:
+            cursor.execute("ALTER TABLE messages ADD COLUMN feedback_reason TEXT;")
+        if "feedback_comment" not in msg_cols:
+            cursor.execute("ALTER TABLE messages ADD COLUMN feedback_comment TEXT;")
+
+        # Table: message_feedbacks
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS message_feedbacks (
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL,
+                session_id TEXT,
+                user_id TEXT,
+                rating TEXT NOT NULL,
+                reason TEXT,
+                comment TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+            );
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_feedbacks_msg_id ON message_feedbacks(message_id);")
 
         # Table: case_studies
         cursor.execute("""
@@ -536,6 +568,88 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
             res["subscriptionExpiry"] = res.get("subscription_expiry")
             return res
         return None
+
+def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """Retrieve user record by email."""
+    email_clean = email.strip().lower()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, email, password_hash, full_name, role, subscription_plan, subscription_expiry, created_at FROM users WHERE email = ?;", (email_clean,))
+        row = cursor.fetchone()
+        if row:
+            res = dict(row)
+            res["fullName"] = res.get("full_name")
+            res["subscriptionPlan"] = res.get("subscription_plan") or "free"
+            res["subscriptionExpiry"] = res.get("subscription_expiry")
+            return res
+        return None
+
+def create_password_reset_otp(email: str) -> str:
+    """Tạo mã OTP 6 số để đặt lại mật khẩu cho email đã đăng ký (hiệu lực 15 phút)."""
+    import random
+    email_clean = email.strip().lower()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE email = ?;", (email_clean,))
+        user = cursor.fetchone()
+        if not user:
+            raise ValueError("Địa chỉ email này chưa được đăng ký trong hệ thống.")
+
+        # Vô hiệu hóa mọi OTP chưa dùng trước đó của email này
+        cursor.execute("UPDATE password_resets SET used = 1 WHERE email = ? AND used = 0;", (email_clean,))
+
+        # Sinh mã OTP ngẫu nhiên 6 chữ số
+        otp_code = f"{random.randint(100000, 999999)}"
+        reset_id = f"reset-{uuid.uuid4().hex[:12]}"
+        expires_at = (datetime.now() + timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+
+        cursor.execute(
+            """INSERT INTO password_resets (id, email, otp_code, expires_at, used)
+               VALUES (?, ?, ?, ?, 0);""",
+            (reset_id, email_clean, otp_code, expires_at)
+        )
+        conn.commit()
+        return otp_code
+
+def verify_and_reset_password(email: str, otp_code: str, new_password: str) -> bool:
+    """Xác thực mã OTP và cập nhật mật khẩu mới cho tài khoản."""
+    email_clean = email.strip().lower()
+    otp_clean = str(otp_code).strip()
+
+    if not new_password or len(new_password) < 6:
+        raise ValueError("Mật khẩu mới phải có ít nhất 6 ký tự.")
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Tìm OTP còn hiệu lực gần nhất
+        cursor.execute(
+            """SELECT id, expires_at, used FROM password_resets 
+               WHERE email = ? AND otp_code = ? AND used = 0 
+               ORDER BY created_at DESC LIMIT 1;""",
+            (email_clean, otp_clean)
+        )
+        reset_record = cursor.fetchone()
+        if not reset_record:
+            raise ValueError("Mã xác nhận (OTP) không chính xác hoặc đã được sử dụng.")
+
+        expires_at_str = reset_record["expires_at"]
+        expires_at = datetime.strptime(expires_at_str, "%Y-%m-%d %H:%M:%S")
+        if datetime.now() > expires_at:
+            cursor.execute("UPDATE password_resets SET used = 1 WHERE id = ?;", (reset_record["id"],))
+            conn.commit()
+            raise ValueError("Mã xác nhận (OTP) đã hết hạn (chỉ có hiệu lực trong 15 phút). Vui lòng yêu cầu mã mới.")
+
+        # Hash mật khẩu mới
+        pwd_hash, salt_hex = _hash_password(new_password)
+        cursor.execute(
+            "UPDATE users SET password_hash = ?, salt = ? WHERE email = ?;",
+            (pwd_hash, salt_hex, email_clean)
+        )
+        # Đánh dấu OTP đã sử dụng
+        cursor.execute("UPDATE password_resets SET used = 1 WHERE id = ?;", (reset_record["id"],))
+        conn.commit()
+        return True
+
 
 def get_daily_message_count(user_id: str, date_str: str = None) -> int:
     """Đếm số tin nhắn user đã gửi trong một ngày (mặc định hôm nay)."""
@@ -909,6 +1023,9 @@ def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Option
                 "quiz": json.loads(m["quiz_json"]) if ("quiz_json" in m.keys() and m["quiz_json"]) else None,
                 "tax": json.loads(m["tax_json"]) if ("tax_json" in m.keys() and m["tax_json"]) else None,
                 "caseStudy": json.loads(m["case_study_json"]) if ("case_study_json" in m.keys() and m["case_study_json"]) else None,
+                "feedback": m["feedback"] if ("feedback" in m.keys()) else None,
+                "feedbackReason": m["feedback_reason"] if ("feedback_reason" in m.keys()) else None,
+                "feedbackComment": m["feedback_comment"] if ("feedback_comment" in m.keys()) else None,
             })
 
         cursor.execute("SELECT * FROM attachments WHERE session_id = ?;", (session_id,))
@@ -998,6 +1115,72 @@ def add_message(session_id: str, sender: str, text: str, timestamp: str,
 
         conn.commit()
         return msg_id
+
+def save_message_feedback(message_id: str, rating: str, reason: str = None, comment: str = None, user_id: str = None) -> Dict[str, Any]:
+    """Lưu đánh giá Thumbs Up / Thumbs Down & góp ý cho câu trả lời của AI."""
+    rating_clean = rating.lower().strip()
+    if rating_clean not in ('like', 'dislike'):
+        raise ValueError("Đánh giá phải là 'like' hoặc 'dislike'.")
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    feedback_id = f"fb-{uuid.uuid4().hex[:10]}"
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, session_id FROM messages WHERE id = ?;", (message_id,))
+        msg = cursor.fetchone()
+        if not msg:
+            raise ValueError("Không tìm thấy tin nhắn được chỉ định.")
+
+        session_id = msg["session_id"]
+        cursor.execute(
+            """UPDATE messages SET feedback = ?, feedback_reason = ?, feedback_comment = ? WHERE id = ?;""",
+            (rating_clean, reason, comment, message_id)
+        )
+
+        cursor.execute(
+            """INSERT INTO message_feedbacks (id, message_id, session_id, user_id, rating, reason, comment, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?);""",
+            (feedback_id, message_id, session_id, user_id, rating_clean, reason, comment, now_str)
+        )
+        conn.commit()
+
+        return {
+            "id": feedback_id,
+            "messageId": message_id,
+            "rating": rating_clean,
+            "reason": reason,
+            "comment": comment,
+            "createdAt": now_str
+        }
+
+def get_feedback_statistics() -> Dict[str, Any]:
+    """Lấy thống kê đánh giá phản hồi (CSAT / Human Feedback) cho Admin Dashboard."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM message_feedbacks WHERE rating = 'like';")
+        likes = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT COUNT(*) FROM message_feedbacks WHERE rating = 'dislike';")
+        dislikes = cursor.fetchone()[0] or 0
+
+        total = likes + dislikes
+        satisfaction_rate = round((likes / total * 100), 1) if total > 0 else 100.0
+
+        cursor.execute(
+            """SELECT reason, COUNT(*) as count FROM message_feedbacks 
+               WHERE rating = 'dislike' AND reason IS NOT NULL AND reason != ''
+               GROUP BY reason ORDER BY count DESC LIMIT 5;"""
+        )
+        reasons = [{"reason": row["reason"], "count": row["count"]} for row in cursor.fetchall()]
+
+        return {
+            "totalFeedbacks": total,
+            "likes": likes,
+            "dislikes": dislikes,
+            "satisfactionRate": satisfaction_rate,
+            "topDislikeReasons": reasons
+        }
 
 def _ensure_user_exists_cursor(cursor, user_id: Optional[str]) -> Optional[str]:
     """Ensure user exists in users table to satisfy foreign keys and preserve user_id."""
@@ -2271,7 +2454,8 @@ def get_admin_dashboard_analytics() -> dict:
             "uploadsSizeMb": uploads_size_mb,
             "childNodesCount": child_nodes_count or 9228,
             "uniqueDocsCount": unique_docs_count or 14
-        }
+        },
+        "feedback": get_feedback_statistics()
     }
 
 # Initialize DB upon import

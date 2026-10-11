@@ -90,7 +90,7 @@ export default function App() {
   // Modals state
   const [authModal, setAuthModal] = useState<{
     isOpen: boolean;
-    mode: 'login' | 'register';
+    mode: 'login' | 'register' | 'forgot';
   }>({
     isOpen: false,
     mode: 'login',

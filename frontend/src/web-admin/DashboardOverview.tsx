@@ -115,6 +115,13 @@ interface DashboardData {
     };
     activeModel: string;
   };
+  feedback?: {
+    totalFeedbacks: number;
+    likes: number;
+    dislikes: number;
+    satisfactionRate: number;
+    topDislikeReasons: Array<{ reason: string; count: number }>;
+  };
 }
 
 export default function DashboardOverview() {
@@ -855,6 +862,57 @@ export default function DashboardOverview() {
                 <span className="text-emerald-600">{'>'}90 ({d.education.quizScoreDistribution.above90})</span>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── PILLAR 5: AI ANSWER QUALITY & HUMAN FEEDBACK (RLHF / CSAT) ─── */}
+      <div className="mt-6 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Chất lượng Câu trả lời & Đánh giá Người dùng (Human Feedback / RLHF)</h3>
+              <p className="text-xs text-slate-500">Thu thập dữ liệu phản hồi Thumbs Up / Down theo cơ chế Active Learning</p>
+            </div>
+          </div>
+          <div className="sm:text-right">
+            <span className="text-xs font-semibold text-slate-400">Tỷ lệ Hài lòng (CSAT):</span>
+            <div className="text-2xl font-black text-blue-600">
+              {d.feedback?.satisfactionRate ?? 100}%
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+          <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-100 flex items-center justify-between">
+            <div>
+              <span className="text-xs text-slate-500 font-medium">Tổng lượt đánh giá</span>
+              <div className="text-xl font-bold text-slate-900 mt-0.5">{d.feedback?.totalFeedbacks ?? 0} lượt</div>
+            </div>
+            <div className="text-blue-500 text-2xl font-bold">💬</div>
+          </div>
+
+          <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-100 flex items-center justify-between">
+            <div>
+              <span className="text-xs text-slate-500 font-medium">Lượt hữu ích (Thumbs Up)</span>
+              <div className="text-xl font-bold text-emerald-700 mt-0.5">{d.feedback?.likes ?? 0} 👍</div>
+            </div>
+            <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-1 rounded-lg">
+              {d.feedback?.totalFeedbacks ? Math.round((d.feedback.likes / d.feedback.totalFeedbacks) * 100) : 100}%
+            </span>
+          </div>
+
+          <div className="p-4 bg-rose-50/60 rounded-xl border border-rose-100 flex items-center justify-between">
+            <div>
+              <span className="text-xs text-slate-500 font-medium">Cần cải thiện (Thumbs Down)</span>
+              <div className="text-xl font-bold text-rose-700 mt-0.5">{d.feedback?.dislikes ?? 0} 👎</div>
+            </div>
+            <span className="text-xs bg-rose-100 text-rose-800 font-bold px-2 py-1 rounded-lg">
+              {d.feedback?.totalFeedbacks ? Math.round((d.feedback.dislikes / d.feedback.totalFeedbacks) * 100) : 0}%
+            </span>
           </div>
         </div>
       </div>

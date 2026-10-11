@@ -52,6 +52,7 @@ except Exception:
 # Add backend directory to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import db
+import email_service
 from rag.pipeline import RAGPipeline
 from rag.agent import AgentDispatcher
 from rag.cache import SemanticCache
@@ -312,6 +313,19 @@ class AuthIn(BaseModel):
     email: str
     password: str
     fullName: Optional[str] = None
+
+class ForgotPasswordIn(BaseModel):
+    email: str
+
+class ResetPasswordIn(BaseModel):
+    email: str
+    otp: str
+    newPassword: str
+
+class MessageFeedbackIn(BaseModel):
+    rating: str
+    reason: Optional[str] = None
+    comment: Optional[str] = None
 
 class AdminUserCreateReq(BaseModel):
     email: str
@@ -950,12 +964,79 @@ async def auth_login(req: AuthIn):
         return JSONResponse({'error': f'Lỗi hệ thống: {str(e)}'}, status_code=500)
 
 
+@app.post('/api/auth/forgot-password')
+async def auth_forgot_password(req: ForgotPasswordIn):
+    try:
+        otp_code = db.create_password_reset_otp(req.email)
+        mail_res = email_service.send_reset_password_email(req.email, otp_code)
+        return JSONResponse({
+            'success': True,
+            'message': 'Mã xác nhận (OTP) đã được gửi đến email của bạn.',
+            'sent_via_smtp': mail_res.get('sent_via_smtp', False),
+            'is_demo': mail_res.get('is_demo', False),
+            'demo_otp': mail_res.get('demo_otp')
+        })
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({'error': f'Lỗi hệ thống: {str(e)}'}, status_code=500)
+
+
+@app.post('/api/auth/reset-password')
+async def auth_reset_password(req: ResetPasswordIn):
+    try:
+        db.verify_and_reset_password(req.email, req.otp, req.newPassword)
+        return JSONResponse({
+            'success': True,
+            'message': 'Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới.'
+        })
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({'error': f'Lỗi hệ thống: {str(e)}'}, status_code=500)
+
+
 @app.get('/api/auth/me')
 async def auth_me(user: dict = Depends(get_current_user_required)):
     user_db = db.get_user_by_id(user["id"])
     if not user_db:
         raise HTTPException(status_code=404, detail="Người dùng không tồn tại.")
     return JSONResponse({"success": True, "user": user_db})
+
+
+# ═══════════════════════════════════════════════════════════════════
+# MESSAGE FEEDBACK & QUALITY CONTROL (RLHF / HUMAN FEEDBACK)
+# ═══════════════════════════════════════════════════════════════════
+
+@app.post('/api/messages/{message_id}/feedback')
+async def submit_message_feedback(
+    message_id: str,
+    req: MessageFeedbackIn,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    try:
+        user_id = current_user.get("id") if current_user else None
+        res = db.save_message_feedback(
+            message_id=message_id,
+            rating=req.rating,
+            reason=req.reason,
+            comment=req.comment,
+            user_id=user_id
+        )
+        return JSONResponse({"success": True, "feedback": res})
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": f"Lỗi hệ thống: {str(e)}"}, status_code=500)
+
+
+@app.get('/api/admin/feedbacks/stats')
+async def get_feedback_stats(current_user: Optional[dict] = Depends(get_current_user_optional)):
+    try:
+        stats = db.get_feedback_statistics()
+        return JSONResponse({"success": True, "stats": stats})
+    except Exception as e:
+        return JSONResponse({"error": f"Lỗi hệ thống: {str(e)}"}, status_code=500)
 
 
 # ═══════════════════════════════════════════════════════════════════

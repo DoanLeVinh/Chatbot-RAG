@@ -23,3 +23,17 @@ ollama serve
 Nếu chưa từng tải model qwen2.5:3b, bạn có thể tải trước bằng lệnh:
 bash
 ollama pull qwen2.5:3b
+
+---
+
+### Bước 4: Hướng dẫn kiểm thử Tính năng Quên mật khẩu (OTP)
+1. **Tại giao diện Web (`http://localhost:5173`)**:
+   - Bấm **"Đăng nhập"** ở góc phải thanh điều hướng.
+   - Bấm vào liên kết **"Quên mật khẩu?"** bên cạnh ô nhập mật khẩu.
+   - Nhập email tài khoản đã đăng ký (ví dụ: `admin@logichat.vn` hoặc tài khoản bạn tự đăng ký) -> Bấm **"Gửi mã xác nhận (OTP)"**.
+2. **Cơ chế nhận mã OTP**:
+   - **Chế độ Thử nghiệm / Demo (mặc định)**: Mã OTP 6 số sẽ tự động in nổi bật trên terminal của Backend (`python backend/serve.py`) đồng thời hiển thị huy hiệu gợi ý *"Mã OTP thử nghiệm"* ngay trên giao diện web (có nút **"Điền nhanh"** để kiểm thử tức thì không lo lỗi email).
+   - **Chế độ Gửi Email thật**: Mở file `.env` và điền cấu hình `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` (ví dụ tài khoản Gmail App Password), hệ thống sẽ gửi email HTML chuyên nghiệp trực tiếp đến hộp thư người dùng.
+3. **Đặt lại mật khẩu**:
+   - Nhập mã OTP gồm 6 chữ số và mật khẩu mới (tối thiểu 6 ký tự) -> Bấm **"Xác nhận đổi mật khẩu"**.
+   - Sau khi hoàn tất, hệ thống sẽ tự động chuyển về màn hình đăng nhập để bạn trải nghiệm ngay với mật khẩu mới.
