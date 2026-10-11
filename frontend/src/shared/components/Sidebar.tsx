@@ -2,7 +2,7 @@ import React from 'react';
 import { ActiveScreen, ChatSession } from '../types';
 import { LogiChatLogo } from './LogiChatLogo';
 import { RippleButton } from './RippleButton';
-import { ClockCounterClockwise, Calendar, CalendarBlank, Plus, X, Trash, Gear, SignOut, ShieldCheck, SidebarSimple } from '@phosphor-icons/react';
+import { ClockCounterClockwise, Calendar, CalendarBlank, Plus, X, Trash, Gear, SignOut, ShieldCheck, SidebarSimple, TreeStructure } from '@phosphor-icons/react';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -13,6 +13,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onNavigateScreen: (screen: 'chat' | 'history' | 'landing') => void;
   onOpenSettings: () => void;
+  onOpenHsTree?: () => void;
 
   // Xóa session
   onDeleteSession: (id: string) => void;
@@ -37,6 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewChat,
   onNavigateScreen,
   onOpenSettings,
+  onOpenHsTree,
   onDeleteSession,
   isMobileOpen,
   onCloseMobile,
@@ -179,7 +181,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      <div className="mb-6">
+      <div className="mb-4 space-y-2">
         <button
           onClick={() => {
             onNewChat();
@@ -197,6 +199,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="text-[13px] font-semibold tracking-wide">Tạo Cuộc Hỏi Đáp Mới</span>
           </div>
         </button>
+
+        {/* Nút Tra cứu Biểu thuế & Mã HS Thông minh */}
+        {onOpenHsTree && (
+          <button
+            type="button"
+            onClick={() => {
+              onOpenHsTree();
+              onCloseMobile();
+            }}
+            className="w-full group flex items-center gap-2.5 py-2 px-3 rounded-xl bg-blue-50/80 hover:bg-blue-100 text-blue-800 border border-blue-200/70 transition-all text-xs font-bold cursor-pointer shadow-2xs hover:shadow-xs active:scale-98"
+            title="Mở Cây tra cứu Biểu thuế XNK & 6 Quy tắc GIR"
+          >
+            <div className="w-6 h-6 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-xs">
+              <TreeStructure size={14} weight="bold" />
+            </div>
+            <span className="truncate">Cây Tra Cứu Mã HS & Thuế</span>
+          </button>
+        )}
       </div>
 
       {/* Navigation & Session Groups */}

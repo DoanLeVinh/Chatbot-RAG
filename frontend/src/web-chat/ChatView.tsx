@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChatSession, ChatMessage, TaxCalculationResult, CaseStudyDetail } from '../shared/types';
 import { RippleButton } from '../shared/components/RippleButton';
-import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor, FileText, ThumbsUp, ThumbsDown, Copy, SpeakerHigh, Check } from '@phosphor-icons/react';
+import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, PaperPlaneRight, Anchor, FileText, ThumbsUp, ThumbsDown, Copy, SpeakerHigh, Check, TreeStructure } from '@phosphor-icons/react';
 import { Zap, BrainCircuit, BookOpenCheck, ArrowRight } from 'lucide-react';
 import { InChatTaxCard } from '../features/tax/InChatTaxCard';
 import { InChatCaseStudyCard } from '../features/case_study/InChatCaseStudyCard';
@@ -69,6 +69,7 @@ interface ChatViewProps {
   onUpgradeClick?: () => void;
   onStartQuiz?: (quizId: string) => void;
   onOpenTaxModal?: (taxData?: TaxCalculationResult) => void;
+  onOpenHsTree?: () => void;
   onOpenSolveCaseStudy?: (caseStudy: CaseStudyDetail) => void;
   onOpenCaseStudySolution?: (caseStudy: CaseStudyDetail) => void;
 }
@@ -88,6 +89,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onUpgradeClick,
   onStartQuiz,
   onOpenTaxModal,
+  onOpenHsTree,
   onOpenSolveCaseStudy,
   onOpenCaseStudySolution,
 }) => {
@@ -345,6 +347,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 {userPlan === 'free' && <ShieldCheck size={12} weight="fill" className="text-amber-500 ml-0.5" />}
               </button>
             </div>
+          )}
+
+          {onOpenHsTree && (
+            <button
+              type="button"
+              onClick={onOpenHsTree}
+              className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border border-blue-200 bg-white text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-all cursor-pointer shadow-2xs active:scale-95"
+              title="Tra cứu Cây phân cấp Mã HS & 6 Quy tắc GIR"
+            >
+              <TreeStructure size={16} weight="bold" className="text-blue-600" />
+              <span className="hidden sm:inline">Tra mã HS</span>
+            </button>
           )}
 
           <button

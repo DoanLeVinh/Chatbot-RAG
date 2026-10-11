@@ -18,6 +18,7 @@ import { PricingPage } from '../pages/PricingPage';
 import { QuizRunnerModal } from '../features/quiz/QuizRunnerModal';
 import { TaxEstimatorModal } from '../features/tax/TaxEstimatorModal';
 import { CaseStudyModal } from '../features/case_study/CaseStudyModal';
+import { HsCodeTreeModal } from '../features/tariff/HsCodeTreeModal';
 import { CitationModal } from './CitationModal';
 import { TaxCalculationResult, CaseStudyDetail } from '../shared/types';
 
@@ -219,6 +220,7 @@ export default function App() {
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
   const [taxModalData, setTaxModalData] = useState<TaxCalculationResult | null>(null);
   const [isTaxModalOpen, setIsTaxModalOpen] = useState(false);
+  const [isHsTreeModalOpen, setIsHsTreeModalOpen] = useState(false);
   const [activeCaseStudy, setActiveCaseStudy] = useState<CaseStudyDetail | null>(null);
   const [isCaseStudyModalOpen, setIsCaseStudyModalOpen] = useState(false);
   const [caseStudyModalTab, setCaseStudyModalTab] = useState<'solve' | 'solution'>('solve');
@@ -968,6 +970,7 @@ export default function App() {
                   onNewChat={handleNewChat}
                   onNavigateScreen={(scr) => setActiveScreen(scr)}
                   onOpenSettings={() => setIsSettingsOpen(true)}
+                  onOpenHsTree={() => setIsHsTreeModalOpen(true)}
                   onDeleteSession={handleDeleteSession}
                   isMobileOpen={isMobileSidebarOpen}
                   onCloseMobile={() => setIsMobileSidebarOpen(false)}
@@ -1029,6 +1032,7 @@ export default function App() {
                     setTaxModalData(data);
                     setIsTaxModalOpen(true);
                   }}
+                  onOpenHsTree={() => setIsHsTreeModalOpen(true)}
                   onOpenSolveCaseStudy={(cs) => {
                     setActiveCaseStudy(cs);
                     setCaseStudyModalTab('solve');
@@ -1108,6 +1112,52 @@ export default function App() {
           onClose={() => {
             setIsCaseStudyModalOpen(false);
             setActiveCaseStudy(null);
+          }}
+        />
+
+        <HsCodeTreeModal
+          isOpen={isHsTreeModalOpen}
+          onClose={() => setIsHsTreeModalOpen(false)}
+          onSelectHsCode={(node) => {
+            setIsHsTreeModalOpen(false);
+            const mfn = (node.mfnRate || 0) / 100;
+            const vat = (node.vatRate || 10) / 100;
+            const ttdb = (node.ttdbRate || 0) / 100;
+            const cif = 100000000;
+            const tNk = cif * mfn;
+            const tTtdb = (cif + tNk) * ttdb;
+            const vVat = cif + tNk + tTtdb;
+            const tVat = vVat * vat;
+            const total = tNk + tTtdb + tVat;
+
+            setTaxModalData({
+              hsCode: node.code,
+              productName: node.titleVi,
+              unit: 'Chiếc',
+              quantity: 100,
+              unitPrice: 1000000,
+              currency: 'VND',
+              exchangeRate: 1,
+              cifForeign: cif,
+              vNk: cif,
+              coForm: 'MFN',
+              importTaxRate: mfn,
+              importTaxLabel: `Thuế NK Ưu đãi MFN (${node.mfnRate || 0}%)`,
+              tNk: tNk,
+              ttdbRate: ttdb,
+              tTtdb: tTtdb,
+              bvmtRate: 0,
+              tBvmt: 0,
+              vVat: vVat,
+              vatRate: vat,
+              tVat: tVat,
+              totalTax: total,
+              girRule: node.girRule,
+              importConditions: node.importConditions,
+              legalReference: node.legalReference,
+              availableFta: node.ftaRates ? Object.keys(node.ftaRates) : []
+            });
+            setIsTaxModalOpen(true);
           }}
         />
 
