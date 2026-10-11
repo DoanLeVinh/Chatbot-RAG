@@ -30,6 +30,7 @@ const getOrderedCitations = (msg: ChatMessage) => {
 
   const findCitation = (originalId: number) => {
     return msg.citations!.find(c => c.id.startsWith(`cit-${originalId - 1}-`))
+        || msg.citations!.find(c => c.id === `cit-guard-${originalId - 1}`)
         || msg.citations![originalId - 1]
         || msg.citations!.find(c => c.code?.includes(String(originalId)));
   };
@@ -510,20 +511,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                   if (href?.startsWith('#citation-')) {
                                     const numIdx = parseInt(href.replace('#citation-', ''), 10) - 1;
                                     const ref = msg.citations?.find(c => c.id.startsWith(`cit-${numIdx}-`))
+                                             || msg.citations?.find(c => c.id === `cit-guard-${numIdx}`)
                                              || msg.citations?.[numIdx]
                                              || msg.citations?.find(c => c.code?.includes(String(numIdx + 1)));
                                     
                                     return (
                                       <span className="tooltip-group inline-flex items-center">
                                         <button
-                                          onClick={(e) => { e.preventDefault(); if (ref) onCitationClick(ref.code || ref.id); }}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            const targetRef = ref || (msg.citations && msg.citations[numIdx]);
+                                            onCitationClick(targetRef ? (targetRef.code || targetRef.id) : String(numIdx + 1));
+                                          }}
                                           className="inline-flex items-center justify-center min-w-[20px] h-5 ml-1 px-1.5 text-[10px] font-bold text-blue-700 bg-blue-100 rounded-md hover:bg-blue-200 cursor-pointer shadow-xs border border-blue-200 transition-colors"
                                         >
                                           {children}
                                         </button>
                                         <span className="tooltip-content text-left">
-                                          <strong className="block text-blue-300 mb-1">{ref?.code || 'Nguồn tham khảo'}</strong>
-                                          <span className="font-normal opacity-90 line-clamp-2">{ref?.summary || 'Đang tải nội dung...'}</span>
+                                          <strong className="block text-blue-300 mb-1">{ref?.code || (msg.citations && msg.citations[numIdx]?.code) || `Nguồn tham khảo [${numIdx + 1}]`}</strong>
+                                          <span className="font-normal opacity-90 line-clamp-2">{ref?.summary || (msg.citations && msg.citations[numIdx]?.summary) || 'Bấm để xem toàn văn trích dẫn luật chi tiết...'}</span>
                                         </span>
                                       </span>
                                     );
@@ -591,7 +599,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                       </div>
                                       <div className="flex flex-col gap-1.5 shrink-0 ml-2">
                                         <button
-                                          onClick={() => onCitationClick(c.code || c.id)}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            onCitationClick(c.code || c.id);
+                                          }}
                                           className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1 whitespace-nowrap cursor-pointer"
                                         >
                                           <FileText size={14} /> Chi tiết

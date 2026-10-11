@@ -80,8 +80,7 @@ app.mount('/uploads', StaticFiles(directory=str(UPLOADS_DIR)), name='uploads')
 app.mount('/frontend', StaticFiles(directory=str(static_dir)), name='frontend')
 
 PAPERS_DIR = ROOT_DIR / 'papers'
-if PAPERS_DIR.exists():
-    app.mount('/api/papers', StaticFiles(directory=str(PAPERS_DIR)), name='papers')
+# Notice: /api/papers and /papers routes are handled explicitly below by serve_paper with full UTF-8 support
 
 # Advanced RAG Globals
 agent_dispatcher: Optional[AgentDispatcher] = None
@@ -459,11 +458,12 @@ async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_curre
     guard_res = check_query_guardrails(req.prompt)
     if guard_res:
         guard_reply = guard_res["reply"]
+        guard_citations = guard_res.get("citations")
         if req.sessionId:
             try:
                 timestamp = datetime.now().strftime('%H:%M')
                 db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
-                db.add_message(req.sessionId, 'ai', guard_reply, timestamp, user_id=effective_user_id)
+                db.add_message(req.sessionId, 'ai', guard_reply, timestamp, citations=guard_citations, user_id=effective_user_id)
             except Exception:
                 pass
         return JSONResponse({
@@ -472,7 +472,7 @@ async def api_chat(req: ChatIn, user_payload: Optional[dict] = Depends(get_curre
             'hsCode': None,
             'taxes': None,
             'inspections': None,
-            'citations': None,
+            'citations': guard_citations,
             'summaryPdf': None
         })
 
@@ -587,6 +587,7 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
             guard_res = check_query_guardrails(req.prompt)
             if guard_res:
                 refusal_text = guard_res["reply"]
+                guard_citations = guard_res.get("citations")
                 yield f"data: {json.dumps({'stage': '🛡️ Đang kiểm tra ranh giới an toàn & chuẩn mực đạo đức AI...'}, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0)
                 words = refusal_text.split(" ")
@@ -601,14 +602,17 @@ async def api_chat_stream(req: ChatIn, user_payload: Optional[dict] = Depends(ge
                     "hsCode": None,
                     "taxes": None,
                     "inspections": None,
-                    "citations": None,
+                    "citations": guard_citations,
                     "summaryPdf": None
                 }
                 if req.sessionId:
                     try:
                         timestamp = datetime.now().strftime('%H:%M')
                         db.add_message(req.sessionId, 'user', req.prompt, timestamp, user_id=effective_user_id)
-                        db.add_message(req.sessionId, 'ai', refusal_text, timestamp, user_id=effective_user_id)
+                        db.add_message(
+                            req.sessionId, 'ai', refusal_text, timestamp,
+                            citations=guard_citations, user_id=effective_user_id
+                        )
                     except Exception:
                         pass
                 yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
@@ -2474,6 +2478,62 @@ async def api_submit_case_study_solution(
 
 
 # ═══════════════════════════════════════════════════════════════════
+# LEGAL PAPERS & DOCUMENTS STATIC SERVING
+# ═══════════════════════════════════════════════════════════════════
+
+@app.get('/api/papers/{file_name:path}')
+@app.get('/papers/{file_name:path}')
+async def serve_paper(file_name: str):
+    """Phục vụ file tài liệu pháp lý PDF gốc trực tiếp cho viewer / iframe / tải về."""
+    from urllib.parse import unquote, quote
+    papers_dir = (Path.cwd() / "papers").resolve()
+    if not papers_dir.exists():
+        papers_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Chuẩn hóa tên file: loại bỏ query/hash nếu lọt vào path
+    clean_target = file_name.split('?')[0].split('#')[0]
+    decoded_name = unquote(clean_target).strip()
+    if decoded_name.startswith('papers/'):
+        decoded_name = decoded_name[7:]
+    
+    # 1. Thử đường dẫn trực tiếp (đã unquote)
+    paper_path = (papers_dir / decoded_name).resolve()
+    
+    # 2. Thử đường dẫn raw
+    if not paper_path.exists() or not paper_path.is_file():
+        paper_path = (papers_dir / clean_target).resolve()
+        
+    # 3. Thử tìm kiếm mờ (fuzzy match) theo tên file trong thư mục papers
+    if not paper_path.exists() or not paper_path.is_file():
+        search_term = Path(decoded_name).stem.lower().replace('%20', ' ')
+        for p in papers_dir.glob("*.pdf"):
+            stem_lower = p.stem.lower()
+            if search_term in stem_lower or stem_lower in search_term:
+                paper_path = p.resolve()
+                break
+                
+    # 4. Fallback an toàn nếu vẫn không thấy: lấy Luật hải quan.pdf mặc định nếu có
+    if not paper_path.exists() or not paper_path.is_file():
+        default_fallback = papers_dir / "Luật hải quan.pdf"
+        if default_fallback.exists():
+            paper_path = default_fallback.resolve()
+
+    if paper_path.exists() and paper_path.is_file():
+        encoded_filename = quote(paper_path.name)
+        return FileResponse(
+            paper_path,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}",
+                "Cache-Control": "public, max-age=3600",
+                "Access-Control-Allow-Origin": "*",
+                "X-Frame-Options": "ALLOWALL",
+            }
+        )
+    return JSONResponse({'error': f'Văn bản PDF không tìm thấy: {decoded_name}'}, status_code=404)
+
+
+# ═══════════════════════════════════════════════════════════════════
 # HOMEPAGE & SPA FALLBACK
 # ═══════════════════════════════════════════════════════════════════
 
@@ -2489,7 +2549,7 @@ async def homepage(request: Request):
 
 @app.get('/{path:path}')
 async def spa_fallback(request: Request, path: str):
-    if path.startswith(('api/', 'uploads/')):
+    if path.startswith(('api/', 'uploads/', 'papers/')):
         return JSONResponse({'error': 'Not Found'}, status_code=404)
         
     dist_dir = Path.cwd() / 'frontend' / 'dist'

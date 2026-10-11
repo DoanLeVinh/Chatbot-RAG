@@ -9,6 +9,11 @@ interface CitationModalProps {
   copiedId: string | null;
 }
 
+// Escape regex special characters
+const escapeRegExp = (str: string) => {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 export const CitationModal: React.FC<CitationModalProps> = ({
   citation,
   onClose,
@@ -16,9 +21,35 @@ export const CitationModal: React.FC<CitationModalProps> = ({
   copiedId,
 }) => {
   // Hooks được gọi ở top-level của component — đúng chuẩn Rules of Hooks
-  const jumpTabs = citation.title.includes('-')
-    ? citation.title.split('-')[1].split(',').map((t) => t.trim())
-    : [];
+  const jumpTabs = React.useMemo(() => {
+    const content = `${citation.title || ''} ${citation.code || ''} ${citation.fullText || ''} ${citation.summary || ''}`;
+    // 1. Tự động trích xuất các "Điều \d+"
+    const matchesArticle = content.match(/Điều\s+\d+[a-z]?/gi);
+    const unique: string[] = [];
+    if (matchesArticle) {
+      matchesArticle.forEach(m => {
+        const clean = m.trim();
+        const formatted = clean.charAt(0).toUpperCase() + clean.slice(1);
+        if (!unique.some(u => u.toLowerCase() === formatted.toLowerCase())) {
+          unique.push(formatted);
+        }
+      });
+    }
+
+    // 2. Nếu văn bản tập trung 1 Điều cụ thể, bóc tách thêm các Khoản (Khoản 1, Khoản 2, Khoản 3...)
+    if (unique.length <= 1 && citation.fullText) {
+      const matchesClause = citation.fullText.match(/\n([1-9])\.\s+/g);
+      if (matchesClause) {
+        matchesClause.slice(0, 5).forEach(m => {
+          const num = m.trim().replace('.', '');
+          const label = `Khoản ${num}`;
+          if (!unique.includes(label)) unique.push(label);
+        });
+      }
+    }
+    return unique.slice(0, 7);
+  }, [citation]);
+
   const [activeTab, setActiveTab] = useState(jumpTabs[0] || '');
   const [mainTab, setMainTab] = useState<'context' | 'pdf'>('context');
 
@@ -33,22 +64,33 @@ export const CitationModal: React.FC<CitationModalProps> = ({
     }
   }, [activeTab]);
 
-  const highlightText = (text: string, keyword: string) => {
+  const highlightText = (text: string, activeTabStr: string) => {
+    if (!text) return null;
+    let keyword = activeTabStr.trim();
+    if (keyword.startsWith('Khoản ')) {
+      keyword = `${keyword.replace('Khoản ', '').trim()}.`;
+    }
     if (!keyword) return <>{text}</>;
-    const parts = text.split(new RegExp(`(${keyword})`, 'gi'));
-    return (
-      <>
-        {parts.map((part, i) =>
-          part.toLowerCase() === keyword.toLowerCase() ? (
-            <mark key={i} className="bg-yellow-200 text-yellow-900 font-bold px-1 rounded">
-              {part}
-            </mark>
-          ) : (
-            part
-          )
-        )}
-      </>
-    );
+    try {
+      const escaped = escapeRegExp(keyword);
+      const regex = new RegExp(`(${escaped})`, 'gi');
+      const parts = text.split(regex);
+      return (
+        <>
+          {parts.map((part, i) =>
+            part.toLowerCase() === keyword.toLowerCase() ? (
+              <mark key={i} className="bg-yellow-200 text-yellow-900 font-bold px-1.5 py-0.5 rounded shadow-xs">
+                {part}
+              </mark>
+            ) : (
+              part
+            )
+          )}
+        </>
+      );
+    } catch {
+      return <>{text}</>;
+    }
   };
 
   return (

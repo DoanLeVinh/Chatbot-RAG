@@ -421,7 +421,89 @@ def init_db():
                 (admin_id, "admin@logichat.vn", hashed, salt.hex(), "Quản Trị Viên Hệ Thống", "admin")
             )
 
+        # Automatic Migration: Nâng cấp toàn văn citations cũ trong bảng messages (xóa sạch dấu ...)
+        try:
+            from guardrails import check_query_guardrails
+            sample_g = check_query_guardrails("trốn thuế")
+            if sample_g and "citations" in sample_g:
+                guard_map = {c["id"]: c for c in sample_g["citations"]}
+                cursor.execute("SELECT id, citations_json FROM messages WHERE citations_json IS NOT NULL AND citations_json != '';")
+                for m_row in cursor.fetchall():
+                    try:
+                        c_list = json.loads(m_row["citations_json"])
+                        if not isinstance(c_list, list):
+                            continue
+                        updated = False
+                        for idx, item in enumerate(c_list):
+                            cid = item.get("id", "")
+                            ccode = (item.get("code") or "").lower()
+                            ctitle = (item.get("title") or "").lower()
+                            cfull = (item.get("fullText") or "").lower()
+
+                            matched = None
+                            if cid in guard_map:
+                                matched = guard_map[cid]
+                            elif "200" in ccode or "200" in ctitle or "hình sự" in ctitle:
+                                matched = guard_map.get("cit-guard-0")
+                            elif "54/2014" in ccode or "54/2014" in ctitle or "luật hải quan" in ccode or "luật hải quan" in ctitle:
+                                matched = guard_map.get("cit-guard-1")
+                            elif "128/2020" in ccode or "128/2020" in ctitle or "trốn thuế" in ccode or "điều 14" in cfull:
+                                matched = guard_map.get("cit-guard-2")
+
+                            if matched:
+                                merged = dict(matched)
+                                if cid:
+                                    merged["id"] = cid
+                                c_list[idx] = merged
+                                updated = True
+
+                        if updated:
+                            cursor.execute("UPDATE messages SET citations_json = ? WHERE id = ?;", (json.dumps(c_list, ensure_ascii=False), m_row["id"]))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
         conn.commit()
+
+
+def _enrich_guardrail_citations(citations: list) -> list:
+    """Tự động nâng cấp các trích dẫn Guardrails lên phiên bản toàn văn 100% không dấu ba chấm."""
+    if not citations:
+        return citations
+    try:
+        from guardrails import check_query_guardrails
+        refusal_sample = check_query_guardrails("trốn thuế")
+        if refusal_sample and "citations" in refusal_sample:
+            guard_map = {c["id"]: c for c in refusal_sample["citations"]}
+            enriched = []
+            for c in citations:
+                cid = c.get("id", "")
+                ccode = (c.get("code") or "").lower()
+                ctitle = (c.get("title") or "").lower()
+                cfull = (c.get("fullText") or "").lower()
+
+                matched = None
+                if cid in guard_map:
+                    matched = guard_map[cid]
+                elif "200" in ccode or "200" in ctitle or "hình sự" in ctitle:
+                    matched = guard_map.get("cit-guard-0")
+                elif "54/2014" in ccode or "54/2014" in ctitle or "luật hải quan" in ccode or "luật hải quan" in ctitle:
+                    matched = guard_map.get("cit-guard-1")
+                elif "128/2020" in ccode or "128/2020" in ctitle or "trốn thuế" in ccode or "điều 14" in cfull:
+                    matched = guard_map.get("cit-guard-2")
+
+                if matched:
+                    merged = dict(matched)
+                    if cid:
+                        merged["id"] = cid
+                    enriched.append(merged)
+                else:
+                    enriched.append(c)
+            return enriched
+    except Exception:
+        pass
+    return citations
 
 
 # ─── Simple & Secure RFC 7519 JWT Token Implementation ────────────
@@ -926,7 +1008,8 @@ def get_user_sessions(user_id: Optional[str] = None, search: Optional[str] = Non
             messages = []
             citations_all = []
             for m in msg_rows:
-                citations = json.loads(m["citations_json"]) if m["citations_json"] else []
+                raw_citations = json.loads(m["citations_json"]) if m["citations_json"] else []
+                citations = _enrich_guardrail_citations(raw_citations)
                 if citations:
                     citations_all.extend(citations)
 
@@ -1004,7 +1087,8 @@ def get_session_detail(session_id: str, user_id: Optional[str] = None) -> Option
         seen_refs = set()
 
         for m in msg_rows:
-            citations = json.loads(m["citations_json"]) if m["citations_json"] else []
+            raw_citations = json.loads(m["citations_json"]) if m["citations_json"] else []
+            citations = _enrich_guardrail_citations(raw_citations)
             for c in citations:
                 if c.get("code") and c["code"] not in seen_refs:
                     seen_refs.add(c["code"])

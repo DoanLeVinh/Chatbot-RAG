@@ -18,15 +18,11 @@ logger = logging.getLogger("case_study_service")
 
 # ─── 1. REGEX NHẬN DIỆN Ý ĐỊNH BÀI TẬP TÌNH HUỐNG / TỰ LUẬN ─────────────────
 CASE_STUDY_INTENT_PATTERNS = [
-    r"(b[aà]i\s*t[aậ]p\s*t[iì]nh\s*hu[oố]ng|t[iì]nh\s*hu[oố]ng\s*th[uự]c\s*t[eế]|case\s*study|b[aà]i\s*t[aậ]p\s*t[uự]\s*lu[aậ]n|t[uự]\s*lu[aậ]n)",
-    r"(cho\s*t[oô]i|ra\s*[đd][eề]|t[aạ]o|xin|c[aầ]n|mu[oố]n|l[aà]m)\s*([0-9]|m[oộ]t\s*)?\s*(b[aà]i\s*t[aậ]p|t[iì]nh\s*hu[oố]ng|case\s*study|th[uử]\s*th[aá]ch)",
-    r"(b[aà]i\s*t[aậ]p|t[iì]nh\s*hu[oố]ng).*(h[aả]i\s*quan|nghi[eệ]p\s*v[uụ]|xnk|x[uấ]t\s*nh[aậ]p\s*kh[aẩ]u|inco|tr[iị]\s*gi[aá]|th[uế]|sau\s*th[oô]ng\s*quan|ch[aậ]m\s*n[oộ]p|c/o|xu[aấ]t\s*x[uứ]|ch[oố]ng\s*b[aá]n\s*ph[aá]\s*gi[aá]|ph[oò]ng\s*v[eệ])",
-    r"(gi[aả]i\s*t[iì]nh\s*hu[oố]ng|gi[aả]i\s*b[aà]i\s*t[aậ]p|ch[aấ]m\s*b[aà]i|barem\s*[đd]i[eể]m)",
-    r"(tr[iị]\s*gi[aá]\s*h[aả]i\s*quan.*inco|fob.*cif.*t[iíì]nh\s*thu[eế])",
-    r"(ch[oố]ng\s*b[aá]n\s*ph[aá]\s*gi[aá]|ph[oò]ng\s*v[eệ]\s*th[uơ]ng\s*m[aạ]i)",
-    r"(ki[eể]m\s*tra\s*sau\s*th[oô]ng\s*quan|ph[aạ]t\s*ch[aậ]m\s*n[oộ]p|ngh[iị]\s*[đd][iị]nh\s*128)",
-    r"(tranh\s*ch[aấ]p\s*c/o|h[oó]a\s*[đd][oơ]n\s*b[eê]n\s*th[uứ]\s*ba|third\s*party\s*invoic)",
-    r"(scenario|case\s*study|customs\s*exercise|customs\s*problem|valuation\s*exercise)"
+    r"(b[aà]i\s*t[aậ]p\s*t[iì]nh\s*hu[oố]ng|t[iì]nh\s*hu[oố]ng\s*th[uự]c\s*t[eế]|case\s*study|b[aà]i\s*t[aậ]p\s*t[uự]\s*lu[aậ]n|b[aà]i\s*t[uự]\s*lu[aậ]n)",
+    r"(cho\s*t[oô]i|ra\s*[đd][eề]|t[aạ]o|xin|c[aầ]n|mu[oố]n|l[aà]m)\s*([0-9]|m[oộ]t\s*)?\s*(b[aà]i\s*t[aậ]p|t[iì]nh\s*hu[oố]ng|case\s*study|[đd][eề]\s*b[aà]i|th[uử]\s*th[aá]ch)",
+    r"(b[aà]i\s*t[aậ]p|t[iì]nh\s*hu[oố]ng|case\s*study).*(h[aả]i\s*quan|nghi[eệ]p\s*v[uụ]|xnk|x[uấ]t\s*nh[aậ]p\s*kh[aẩ]u|inco|tr[iị]\s*gi[aá]|th[uế]|sau\s*th[oô]ng\s*quan|ch[aậ]m\s*n[oộ]p|c/o|xu[aấ]t\s*x[uứ]|ch[oố]ng\s*b[aá]n\s*ph[aá]\s*gi[aá]|ph[oò]ng\s*v[eệ]|ngh[iị]\s*[đd][iị]nh\s*128)",
+    r"(gi[aả]i\s*t[iì]nh\s*hu[oố]ng|gi[aả]i\s*b[aà]i\s*t[aậ]p|ch[aấ]m\s*b[aà]i\s*t[uự]\s*lu[aậ]n|barem\s*[đd]i[eể]m)",
+    r"(scenario|customs\s*exercise|customs\s*problem|valuation\s*exercise)"
 ]
 
 def is_case_study_intent(prompt: str) -> bool:
