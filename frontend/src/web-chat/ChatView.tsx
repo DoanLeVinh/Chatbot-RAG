@@ -7,6 +7,7 @@ import { List, BookBookmark, ShieldCheck, User, Download, Spinner, Paperclip, Pa
 import { Zap, BrainCircuit, BookOpenCheck, ArrowRight } from 'lucide-react';
 import { InChatTaxCard } from '../features/tax/InChatTaxCard';
 import { InChatCaseStudyCard } from '../features/case_study/InChatCaseStudyCard';
+import { ConsultationReportModal } from '../features/report/ConsultationReportModal';
 import { getAuthHeaders } from '../shared/utils';
 
 const getOrderedCitations = (msg: ChatMessage) => {
@@ -67,7 +68,7 @@ interface ChatViewProps {
   userPlan?: 'free' | 'pro';
   onUpgradeClick?: () => void;
   onStartQuiz?: (quizId: string) => void;
-  onOpenTaxModal?: (taxData: TaxCalculationResult) => void;
+  onOpenTaxModal?: (taxData?: TaxCalculationResult) => void;
   onOpenSolveCaseStudy?: (caseStudy: CaseStudyDetail) => void;
   onOpenCaseStudySolution?: (caseStudy: CaseStudyDetail) => void;
 }
@@ -107,6 +108,35 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [dislikeComment, setDislikeComment] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
+  // Consultation Report Modal State (Xuất phiếu tư vấn pháp lý & dự toán thuế)
+  const [reportModal, setReportModal] = useState<{
+    isOpen: boolean;
+    message: ChatMessage | null;
+    userQuery?: string;
+  }>({
+    isOpen: false,
+    message: null,
+    userQuery: undefined,
+  });
+
+  const handleOpenReportModal = (msg: ChatMessage) => {
+    const msgIndex = session.messages.findIndex((m) => m.id === msg.id);
+    let priorQuery = '';
+    if (msgIndex > 0) {
+      for (let i = msgIndex - 1; i >= 0; i--) {
+        if (session.messages[i].sender === 'user') {
+          priorQuery = session.messages[i].text;
+          break;
+        }
+      }
+    }
+    setReportModal({
+      isOpen: true,
+      message: msg,
+      userQuery: priorQuery || session.title,
+    });
+  };
 
   useEffect(() => {
     const initialFeedbacks: Record<string, { rating: 'like' | 'dislike'; reason?: string; comment?: string }> = {};
@@ -739,6 +769,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         <span className="text-[11px] font-semibold text-rose-700">Đã góp ý</span>
                       )}
                     </button>
+
+                    {/* Nút Xuất Phiếu Tư Vấn Pháp Lý Hải Quan & Tính Thuế */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenReportModal(msg)}
+                      className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50/90 hover:bg-blue-100 hover:text-blue-800 border border-blue-200/80 rounded-lg transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
+                      title="Xuất Phiếu tư vấn pháp lý & dự toán thuế (In PDF / Tải Word)"
+                    >
+                      <FileText size={15} weight="bold" />
+                      <span>Xuất Phiếu tư vấn (PDF/Word)</span>
+                    </button>
                   </div>
 
                   {/* Follow-up chips */}
@@ -961,6 +1002,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Consultation Report Modal (Phiếu Tư Vấn Pháp Lý Hải Quan & Tính Thuế) */}
+      <ConsultationReportModal
+        isOpen={reportModal.isOpen}
+        onClose={() => setReportModal({ isOpen: false, message: null, userQuery: undefined })}
+        message={reportModal.message}
+        userQuery={reportModal.userQuery}
+      />
     </div>
   );
 };

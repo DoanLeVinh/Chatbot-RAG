@@ -12,17 +12,46 @@ import {
 } from '@phosphor-icons/react';
 
 interface TaxEstimatorModalProps {
-  taxData: TaxCalculationResult | null;
+  taxData?: TaxCalculationResult | null;
   isOpen: boolean;
   onClose: () => void;
 }
 
+const defaultTaxData: TaxCalculationResult = {
+  hsCode: '3304.99.90',
+  productName: 'Mỹ phẩm kem dưỡng ẩm da (Moisturizing Skincare Cream) nhập khẩu',
+  unit: 'Hộp',
+  quantity: 1000,
+  unitPrice: 100000,
+  currency: 'VND',
+  exchangeRate: 1,
+  cifForeign: 100000000,
+  vNk: 100000000,
+  coForm: 'Form AK (Hiệp định Thương mại Tự do ASEAN - Hàn Quốc)',
+  importTaxRate: 0.10,
+  importTaxLabel: 'Thuế nhập khẩu ưu đãi đặc biệt (AKFTA)',
+  tNk: 10000000,
+  ttdbRate: 0,
+  tTtdb: 0,
+  bvmtRate: 0,
+  tBvmt: 0,
+  vVat: 110000000,
+  vatRate: 0.10,
+  tVat: 11000000,
+  totalTax: 21000000,
+  girRule: 'Quy tắc 1 & 6 Tổng quát giải thích việc phân loại hàng hóa HS',
+  importConditions: 'Cần nộp Phiếu công bố sản phẩm mỹ phẩm còn hiệu lực do Cục Quản lý Dược cấp',
+  legalReference: 'Luật Thuế XNK 107/2016, Thông tư 38/2015/TT-BTC, Thông tư 39/2018/TT-BTC, Nghị định 122/2016/NĐ-CP',
+  availableFta: ['MFN (20%)', 'AKFTA (10%)', 'VKFTA (5%)']
+};
+
 export const TaxEstimatorModal: React.FC<TaxEstimatorModalProps> = ({
-  taxData,
+  taxData: propTaxData,
   isOpen,
   onClose
 }) => {
-  if (!isOpen || !taxData) return null;
+  if (!isOpen) return null;
+  const taxData = propTaxData || defaultTaxData;
 
   const formatVND = (val: number) => {
     return `${Math.round(val).toLocaleString('vi-VN')} VNĐ`;

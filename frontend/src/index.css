@@ -246,3 +246,15 @@
   0% { background-position: 0px 0px; }
   100% { background-position: 40px 40px; }
 }
+
+/* Print Rules for Official Advisory Reports */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+}
